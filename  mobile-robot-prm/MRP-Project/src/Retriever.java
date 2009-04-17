@@ -71,24 +71,24 @@ public class Retriever {
 			printPts(pts); // DEBUG
 			
 			// initialize the probabilistic road map
-			ProbRoadMap prm = new ProbRoadMap(1000,pts); // [1000]
+			ProbRoadMap prm = new ProbRoadMap(500,pts); // [1000] [500]
 			prm.setScaleFactor(2.0);
 			prm.setVisible(true);
 			prm.pack();
 			
-			prm.draw();
-			prm.drawAllEdges();
+			
 			
 			// for ...
-	        ProbRoadMap.Node lastnode = prm.planPath(0,1); // DEBUG
+			/*
+	        ProbRoadMap.Node lastnode = prm.planPath(8,9); // DEBUG - mapdestpt 0 -> 1
 	        if(lastnode != null) {
 	        	prm.drawPath(lastnode);
 	        } else {
 	        	System.out.println("Couldn't plan path!");
 	        }
+	        */
 	        
-			prm.drawAllPoints();
-			prm.drawDestPoints();
+
 			
 			while(true) {
 				// DEBUG

@@ -37,6 +37,8 @@ public class ProbRoadMap extends JFrame {
 	
 	// raw world map is a 1600*500 file containing byte values of either 0 or 255
 	private static final String filename = "../3large.raw";
+	private static final double WORLD_WIDTH = 131.2;
+	private static final double WORLD_HEIGHT = 41;
 	private static final int MAP_WIDTH  = 1600; // 131.2m
 	private static final int MAP_HEIGHT = 500;  // 41m
 	private static final double MPP = 0.082; // meters per map pixel
@@ -44,19 +46,19 @@ public class ProbRoadMap extends JFrame {
 	
 	private BufferedImage img;
 	private int scaledimwidth, scaledimheight;
-	private int map[][]; // contains values of 0 or 1
-	private int pts[][]; // [row,col]
-	private int adjmatrix[][]; // represents paths between points
+	
 	private double realdestpts[][]; // destination points specified in meter offsets from robot starting location
+	private int obstaclemap[][]; // contains values of 0 (no obstacle) or 1 (obstacle)
+	private int mappts[][]; // [row,col] form, contains random points in PRM
+	private int adjmatrix[][]; // represents paths between PRM points
 	private int mapdestpts[][]; // destination points in map coordinates
+	private int mapstartpts[][]; // initial robot starting points in map coordinates
 	
 	// constructor
 	public ProbRoadMap(int numpts, double destpts[][]) {
 		// System.out.println("Constructor..."); // DEBUG
 		
-		// convert robot real initial locations into map points
-		// TODO
-		
+
 		// convert real destinations to map destination points
 		/*
 		realdestpts = destpts;
@@ -87,7 +89,7 @@ public class ProbRoadMap extends JFrame {
 			
 			byte val = 0;
 			int count = 0;
-			map = new int[MAP_WIDTH][MAP_HEIGHT];
+			obstaclemap = new int[MAP_WIDTH][MAP_HEIGHT];
 			for(int y = 0; y < MAP_HEIGHT; y++) {
 				for(int x = 0; x < MAP_WIDTH; x++) {
 					val = buff[(y * MAP_WIDTH) + x];
@@ -95,7 +97,7 @@ public class ProbRoadMap extends JFrame {
 					if(val == 0) val = 1;
 					if(val < 0) val = 0;
 					if(val > 1) val = 0;
-					map[x][y] = val;
+					obstaclemap[x][y] = val;
 					count += 1;
 					// System.out.println("x: " + x + " y: " + y + " => " + val); // DEBUG
 				}
@@ -110,14 +112,19 @@ public class ProbRoadMap extends JFrame {
 	        JScrollPane scrollpane = new JScrollPane(mp);
 	        add(scrollpane);
 	        
-	        // generate points and edges
-	        boolean valid = false;
+	        // generate points and edges	        
+			boolean valid = false;
 	        while(!valid) {
 	        	System.out.println("Computing probabilistic road map ..."); // DEBUG
 	        	genAllPoints(numpts);
-	        	genAllEdges();
-	        	valid = checkPaths();
-	        }
+	            genAllEdges();
+				draw();
+				drawAllEdges();
+	            valid = checkPaths();
+	       }
+	       drawAllPoints();
+		   drawDestPoints();
+		   drawStartPoints();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -139,7 +146,7 @@ public class ProbRoadMap extends JFrame {
 		int val, rgbval;
 		for(int y = 0; y < MAP_HEIGHT; y++) {
 			for(int x = 0; x < MAP_WIDTH; x++) {
-				val = map[x][y]*255;
+				val = obstaclemap[x][y]*255;
 				rgbval = (0xff << 24) | (val << 16) | (val << 8) | val;
 				img.setRGB(x,y,rgbval);
 			}
@@ -150,10 +157,10 @@ public class ProbRoadMap extends JFrame {
 	// draw all edges in adjmatrix
 	public void drawAllEdges() {
 		int cval = Color.BLUE.getRGB();
-		for(int i = 0; i < pts.length; i++) {
-			for(int j = i; j < pts.length; j++) {
+		for(int i = 0; i < mappts.length; i++) {
+			for(int j = i; j < mappts.length; j++) {
 				if(adjmatrix[i][j] > 0) {
-					drawLine(pts[i],pts[j],cval);
+					drawLine(mappts[i],mappts[j],cval);
 				}
 			}
 		}
@@ -164,9 +171,21 @@ public class ProbRoadMap extends JFrame {
 	public void drawAllPoints() {
 		int cval = Color.RED.getRGB();
 		int x, y;
-		for(int i = 0; i < pts.length; i++) {
-			x = pts[i][0];
-			y = pts[i][1];
+		for(int i = 0; i < mappts.length; i++) {
+			x = mappts[i][0];
+			y = mappts[i][1];
+			img.setRGB(x,y,cval);
+		}
+		repaint();
+	}
+	
+	// draw initial robot starting points
+	public void drawStartPoints() {
+		int cval = Color.YELLOW.getRGB();
+		int x, y;
+		for(int i = 0; i < mapstartpts.length; i++) {
+			x = mapstartpts[i][0];
+			y = mapstartpts[i][1];
 			img.setRGB(x,y,cval);
 		}
 		repaint();
@@ -206,14 +225,16 @@ public class ProbRoadMap extends JFrame {
 			currx = currx + deltax;
 			dist += Math.sqrt( Math.pow(currx-oldx, 2) + Math.pow(curry-oldy, 2) );
 			y = (int)Math.round(curry); x = (int)Math.round(currx);
-			img.setRGB(x,y,cval);
+			
+			if(dist < totaldist) {
+				img.setRGB(x,y,cval);
+			}
 		}
 	}
 	
 	
 	// draw a path
 	public void drawPath(Node lastnode) {
-		System.out.println("Path:");
     	Stack<Node> nodepath = new Stack<Node>();
     	nodepath.add(lastnode);
     	Node prevnode = null;
@@ -223,62 +244,88 @@ public class ProbRoadMap extends JFrame {
     	}
     	int cval = Color.GREEN.getRGB();
     	Node n = null;
+		// System.out.println("Path:"); // DEBUG
     	while(!nodepath.isEmpty()) {
     		n = nodepath.pop();
-    		System.out.print(n + " (gscore: " + n.gscore + ")  ->  ");
+    		// System.out.print(n + " (gscore: " + n.gscore + ")  ->  "); // DEBUG
     		if(!nodepath.isEmpty()) {
-    			drawLine(pts[n.index],pts[nodepath.peek().index],cval);
+    			drawLine(mappts[n.index],mappts[nodepath.peek().index],cval);
     		}
     	}
-    	System.out.println();
+    	// System.out.println(); // DEBUG
     	repaint();
 	}
 	
-	// determine if a path exists between all starting locations
+	// determine if at least one path exists between all initial robot starting locations
 	// and all destination points
 	private boolean checkPaths() {
+		System.out.println("Checking necessary paths ..."); // DEBUG
 		boolean valid = true;
-		
-		int startx, starty, endx, endy;
+		int startindex, endindex;
+		int numchecks = mapstartpts.length + mapdestpts.length;
 		Node lastnode = null;
-		startx = realDistToMapDist(RobotControl.all_initial_pos[0][0]);
-		starty = realDistToMapDist(RobotControl.all_initial_pos[0][1]);
 		
-		for(int i = 1; i < RobotControl.all_initial_pos.length; i++) {
-			endx = realDistToMapDist(RobotControl.all_initial_pos[i][0]);
-			endy = realDistToMapDist(RobotControl.all_initial_pos[i][1]);
-			// lastnode = planPath();
+		// we know that all initial robot starting locations
+		// and all destination points appear first in mappts
+		for(int i = 1; i < numchecks && valid; i++) {
+			startindex = i-1; endindex = i;
+			System.out.print("Checking path " + startindex + " => " + endindex + " ... "); // DEBUG
 			
+			lastnode = planPath(i-1,i);
+			valid = (lastnode != null);
+			
+			// DEBUG
+			if(valid) {
+				System.out.println("valid");
+				drawPath(lastnode);
+			} else {
+				System.out.println("invalid");
+			}
 		}
-		
 		return valid;
 	}
 	
 	// generate random points
 	// numpts - number of random points to generate
 	private void genAllPoints(int numpts) {
+		int numstartpts = RobotControl.all_initial_pos.length;
 		int numdestpts = mapdestpts.length;
-		pts = new int[numdestpts + numpts][2];
+		mapstartpts = new int[numstartpts][2];
+		mappts = new int[numstartpts + numdestpts + numpts][2];
 		Random rand = new Random();
 		int x,y,count = 0;
+		double realx, realy;
 
-		// add initial robot location points
-		
-		
+		// add initial robot starting points
+		for(int i = 0; i < numstartpts; i++) {
+			// convert real world offsets from world origin to map coordinates
+			realx = RobotControl.all_initial_pos[i][0];
+			realy = RobotControl.all_initial_pos[i][1];
+			x = realDistToMapDist(realx + WORLD_WIDTH/2);
+			y = realDistToMapDist(WORLD_HEIGHT/2 - realy);
+
+			System.out.println("startingpt: [" + realx + "," + realy + "] => [" + x + "," + y + "]"); // DEBUG
+			
+			mapstartpts[count][0] = x;
+			mapstartpts[count][1] = y;
+			mappts[count][0] = x;
+			mappts[count][1] = y;
+			count += 1;
+		}
 		// add destination points
 		for(int i = 0; i < numdestpts; i++) {
-			pts[i][0] = mapdestpts[i][0];
-			pts[i][1] = mapdestpts[i][1];
+			mappts[count][0] = mapdestpts[i][0];
+			mappts[count][1] = mapdestpts[i][1];
+			count += 1;
 		}
-		count = numdestpts;
 		// generate random points
 		while(count < numdestpts + numpts) {
 			y = rand.nextInt(MAP_HEIGHT);
 			x = rand.nextInt(MAP_WIDTH);
 			// determine if point is valid (not inside an obstacle)
-			if(map[x][y] != 0) {
-				pts[count][0] = x;
-				pts[count][1] = y;
+			if(obstaclemap[x][y] != 0) {
+				mappts[count][0] = x;
+				mappts[count][1] = y;
 				count += 1;
 			}
 		}
@@ -291,14 +338,14 @@ public class ProbRoadMap extends JFrame {
 		double oldy, oldx, curry, currx, endy, endx;
 		double theta, totaldist, dist, deltay, deltax;
 		boolean cont;
-		int numpts = pts.length;
+		int numpts = mappts.length;
 		adjmatrix = new int[numpts][numpts];
 		for(int i = 0; i < numpts; i++) {
 			for(int j = i; j < numpts; j++) {
 				if(i != j) { // if not same point
 					// determine if there are obstacles along the path
-					currx = pts[i][0]; curry = pts[i][1];
-					endx  = pts[j][0]; endy  = pts[j][1];
+					currx = mappts[i][0]; curry = mappts[i][1];
+					endx  = mappts[j][0]; endy  = mappts[j][1];
 					totaldist = Math.sqrt( Math.pow(endx-currx, 2) + Math.pow(endy-curry, 2) );
 					theta = Math.atan2(endy-curry, endx-currx);
 					dist = 0.0;
@@ -313,7 +360,7 @@ public class ProbRoadMap extends JFrame {
 						currx = currx + deltax;
 						dist += Math.sqrt( Math.pow(currx-oldx, 2) + Math.pow(curry-oldy, 2) );
 						y = (int)Math.round(curry); x = (int)Math.round(currx);
-						cont = map[x][y] > 0;
+						cont = obstaclemap[x][y] > 0;
 						
 						/*
 						if(cont) {
@@ -334,25 +381,25 @@ public class ProbRoadMap extends JFrame {
 		}
 	}
 	
-	// plan path using A* search
-	// return the last node in the path if a path exists
+	// plan path using A* search and return the last node in the path if a path exists
+	// indexes specify points in mappts
 	// algorithm based on: http://en.wikipedia.org/wiki/A*_search_algorithm
 	public Node planPath(int startindex, int destindex) {
 		int endx, endy;
-		int numpts = pts.length;
+		int numpts = mappts.length;
 		double fscore, tmpgscore, hscore;
 		boolean tmpbetter;
 		Node xnode, ynode;
 		
-		endx = pts[destindex][0]; endy = pts[destindex][1];
+		endx = mappts[destindex][0]; endy = mappts[destindex][1];
 		NodeComparator comparator = new NodeComparator();
 		
 		// keep sets in sorted order
 		List<Node> openset = new ArrayList<Node>();
 		List<Node> closedset = new ArrayList<Node>();
 		
-		fscore = Math.sqrt( Math.pow(endx-pts[startindex][0], 2) 
-				          + Math.pow(endy-pts[startindex][1], 2) );
+		fscore = Math.sqrt( Math.pow(endx-mappts[startindex][0], 2) 
+				          + Math.pow(endy-mappts[startindex][1], 2) );
 		xnode = new Node(startindex,fscore);
 		openset.add(xnode);
 		
@@ -384,10 +431,10 @@ public class ProbRoadMap extends JFrame {
 					
 					// attempt to calculate distance from start along optimal path
 					tmpgscore = xnode.gscore + 
-					         Math.sqrt( Math.pow(pts[ynode.index][0]-pts[xnode.index][0], 2) 
-									  + Math.pow(pts[ynode.index][1]-pts[xnode.index][1], 2) );
-					hscore = Math.sqrt( Math.pow(endx-pts[ynode.index][0], 2) 
-					                  + Math.pow(endy-pts[ynode.index][1], 2) );
+					         Math.sqrt( Math.pow(mappts[ynode.index][0]-mappts[xnode.index][0], 2) 
+									  + Math.pow(mappts[ynode.index][1]-mappts[xnode.index][1], 2) );
+					hscore = Math.sqrt( Math.pow(endx-mappts[ynode.index][0], 2) 
+					                  + Math.pow(endy-mappts[ynode.index][1], 2) );
 					/*
 					System.out.println(">> >> tmpgscore: " + tmpgscore); // DEBUG
 					System.out.println(xnode.index); // DEBUG
