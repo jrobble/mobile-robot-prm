@@ -1,0 +1,47 @@
+# Desc: 1 pioneer robot with laser, no obstacles
+# CVS: $Id: simple.world,v 1.63 2006/03/22 00:22:44 rtv Exp $
+# Modified by zjb 3/13/07
+
+# defines Pioneer-like robots
+include "rit-pioneer.inc"
+
+# defines 'map' object used for floorplans
+ include "map.inc"
+
+# defines sick laser
+# include "sick.inc"
+
+# size of the world in meters
+size [80 80]
+
+# set the resolution of the underlying raytrace model in meters
+resolution 0.02
+
+# update the screen every 10ms (we need fast update for the stest demo)
+gui_interval 20
+
+# configure the GUI window
+window
+(
+  size [ 591.000 638.000 ]
+  center [-0.010 -0.040]
+  scale 0.028
+)
+
+# load an environment bitmap
+map
+(
+  bitmap "bitmaps/rink.png"
+  size [80 80]
+  name "circle"
+)
+
+# create a robot
+pioneer2dx
+(
+  name "robot1"
+  color "red"
+  pose [0 0 0]
+#  sick_laser( samples 361 laser_sample_skip 4 )
+)
+ 

@@ -1,9 +1,12 @@
 /*
  * RobotControl.java
  *
- *  Created on: Apr 2, 2009
+ *  Created on: Apr 17, 2009
  *      Author: jjr0192
  */
+
+import java.util.Scanner;
+import java.util.Stack;
 
 import javaclient2.PlayerClient;
 import javaclient2.Position2DInterface;
@@ -13,22 +16,32 @@ import javaclient2.structures.PlayerPose;
 import javaclient2.structures.sonar.PlayerSonarData;
 
 /*
- * Use sensor data to build a map of the robot's environment. 
- * In particular, build a two-dimensional evidence grid based on sonar
- * data. 
+ * Program that solves three tasks in a single framework, both in 
+ * simulation and on the robot. These tasks are localization, path 
+ * planning, and real-time obstacle avoidance. Only the front-facing 
+ * eight sonar sensors are available.
  * 
- * The robot will be able to wander around in the world defined by
- * simple-sonar.cfg (note that there are two robots in this world, 
- * listening on ports 6665 and 6666) and generate a map.
+ * The robot (if in simulation) operates in the world defined by 
+ * /usr/local/pub/zjb/playerstage/worlds/project.cfg. This world 
+ * defines eight identical robots. These robots are differentiated 
+ * by each listening for commands on a different port. This program 
+ * takes a command line argument of a port number, which is used to 
+ * find the correct Player server. 
  * 
- * Since we are accumulating evidence, we will need to keep the map
- * data around somehow and use that to compute the new evidence after 
- * each sonar scan. Depending on the complexity and resolution of 
- * the update, we may be able to run the update in the robot control 
- * thread without a problem (making sure to only draw the map once 
- * per cycle!).
+ * When the simulation is run, either this code will run on one robot 
+ * and a random walk on the other seven, or several teams' programs 
+ * will run on different robots, with random walkers on the rest. 
+ * This program will not know what the other robots are running, just 
+ * that they might be in the way. Of course, in reality, there will be 
+ * at most one other robot running, but there will be people to avoid 
+ * instead!
  * 
- * simple-sonar.cfg world size: [16 16] meters
+ * The points that must be reached will be given in a file whose name 
+ * is the second command-line argument to this program. There will be 
+ * between one and five points to visit, and all of them will be 
+ * reachable in simulation (i.e. not inside a room). These points 
+ * may be visited in any order, and "visit" means that the robot's 
+ * center stops with 0.5m of the given coordinates. 
  */
 public class RobotControl {
 	
@@ -36,21 +49,23 @@ public class RobotControl {
 	// Variables
 	///////////////////////////////////////////////////////////////////
 	
-	// wall-following variables
-	private static final float DESIRED_DIST_TO_WALL = 0.5f; // m [0.5]
-	private static final float MAX_TURNRATE = (float) (Math.PI/4); // rads [PI/8]
-	private static final int k = 15; // feedback control loop constant [7.5,20]
-	
 	// global variables
 	public static final float PI = 3.14159265358979323846f; 
-	public static final float EPSILON = 0.0001f;
-	public static final float DEFAULT_FORWARD_SPEED  = 0.50f;  // m/s [0.50]
+	public static final float EPSILON = 0.001f;
+	public static final float DEFAULT_FORWARD_SPEED  = 1.00f;  // m/s [0.50]
 	public static final float DEFAULT_BACKWARD_SPEED = 0.20f;  // m/s
 	public static final float DEFAULT_ANGULAR_SPEED  = (PI/4); // rads/s (10 * 16-18 deg., 10 * .279-.314 rads, is about pioneer max)
+	public static final float MAX_TURNRATE = (float) (Math.PI/4); // rads [PI/8]
 	
 	public static boolean FLOAT_EQ(float x, float v) {
 		return ((v - EPSILON) < x) && (x < (v + EPSILON));
 	}
+	
+	/*
+	public static boolean FLOAT_GEQ(float x, float v) {
+		return FLOAT_EQ(x,v) || x > v;
+	}
+	*/
 	
 	// class variables
 	private String server = null;
@@ -62,7 +77,7 @@ public class RobotControl {
 	private PlayerClient robot = null;
 	private Position2DInterface pp = null;
 	private SonarInterface sp = null;
-	private GridMap map = null;
+	private ProbRoadMap prm = null;
 	
 	// sensor geometry - hardcoded since SonarInterface.getGeom() is inaccurate
 	// forward of robot is positive x, right of robot is positive y, left of robot is negative y
@@ -131,15 +146,17 @@ public class RobotControl {
 	}
 	
 	// theta1 - theta2, ctheta - otheta
-	float angularDiff(float theta1, float theta2) {
+	private float angularDiff(float theta1, float theta2) {
 		float t1 = theta1;
 		float t2 = theta2;
 		if(t1 < 0) { t1 = t1 + 2*PI; }
 		if(t2 < 0) { t2 = t2 + 2*PI; }
+		/*
 		System.out.println( 
 				" theta1: " + Math.toDegrees(theta1) + 
 		        " theta2: " + Math.toDegrees(theta2) +
 		        " diff: "   + Math.toDegrees(t1 - t2)); // DEBUG
+		*/
 		float diff = t1 - t2;
 		if(diff < 0) {
 			diff += 2*PI;
@@ -150,22 +167,18 @@ public class RobotControl {
 		return diff;
 	}
 
-	float distance(float x1, float x2, float y1, float y2) {
+	private float distance(float x1, float x2, float y1, float y2) {
 	        return (float) Math.sqrt(Math.pow(x2-x1,2)+Math.pow(y2-y1,2));
 	}
 
-	void readPosition() {
+	private void readPosition() {
 		robot.readAll();
 		// keep old position and heading
 		ox = cx;
 		oy = cy;
 		otheta = ctheta;
 		
-		// read new position and heading
-		// cx = pp.getX();
-		// cy = pp.getY();
-		// ctheta = pp.getYaw(); // C++ ONLY
-		
+		// read new position and heading		
 		PlayerPose pose = pp.getData().getPos();
 		cx = pose.getPx();
 		cy = pose.getPy();
@@ -181,16 +194,15 @@ public class RobotControl {
 		if(FLOAT_EQ(ctheta,-PI)) {
 			ctheta = PI;
 		}
-		/*
-		System.out.println("curr: cx " + cx +
-				                " cy " + cy + 
-				                " ctheta " + Math.toDegrees(ctheta) +
-				                " steps " + steps); // DEBUG
-	    */
+		
+		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
+							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
+	    
 	    steps++;
 	}
 
-	void run(int mode) {
+	// activate and control the robot
+	public void run(double realdestpts[][]) {
 		// setup client and service proxies
 		robot = new PlayerClient(server,port);
 		pp = robot.requestInterfacePosition2D(0,PlayerConstants.PLAYER_OPEN_MODE);
@@ -198,135 +210,195 @@ public class RobotControl {
 		sp = robot.requestInterfaceSonar(0,PlayerConstants.PLAYER_OPEN_MODE);
 		// sp.setSonarPower(1);
 		
-		// create zero-centered evidence map
-		// account for possible initial corner starting location and diagonal heading
-		// world size [131.2 41], resolution [0.082]
-		int mapwidth =  280; // [280]
-		int mapheight = 100; // [100]
-		double mpp = 0.082; // [0.1] 10 cm/px
-		map = new GridMap(mapwidth,mapheight,mpp);
-		map.setScaleFactor(0.5); // [0.5]
-		map.setVisible(true);
-		map.pack();
-		 
-		//       | +x,+y
-		//   ____|____
-		//       |
-		// -x,-y |
-		/*
-		map.setVal(0, 0, 0); // center-ish
-		map.setVal(-mapwidth/2,      mapheight/2,        0); // left  upper
-		map.setVal(mapwidth/2 - mpp, mapheight/2,        0); // right upper
-		map.setVal(-mapwidth/2,      -mapheight/2 + mpp, 0); // left  lower
-		map.setVal(mapwidth/2 - mpp, -mapheight/2 + mpp, 0); // right lower
-		*/
+		// initialize the probabilistic road map
+		prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
+		prm.setScaleFactor(2.0);
+		prm.setVisible(true);
+		prm.pack();
+		
+		// DEBUG plan next path
+		Stack<Node> nodepath = prm.createPath(prm.planPath(0,2));
+		prm.reset();
+		prm.drawPath(nodepath);
+		
+		pause();
+		followPath(nodepath);
+		pause();
+		
+		System.out.println("Terminating program.");
+		robot.close();
+		prm.dispose();
+	}
+	
+	// pause for user input
+	private void pause() {
+		System.out.print("\nPress enter to continue ... ");
+		Scanner scan = new Scanner(System.in); scan.nextLine(); // pause
+		System.out.println("Continuing\n");
+	}
+	
+	// set the robot's odometry
+	private void setOdometry(float x, float y, float theta) {
+		System.out.printf(">> SET ODOMETRY [%5.5f,%5.5f,%5.5f] ...\n",x,y,Math.toDegrees(theta)); // DEBUG
+		PlayerPose pose = new PlayerPose();
+		pose.setPx(x); pose.setPy(y); pose.setPa((float) Math.toRadians(theta));
+		boolean valid = false;
+		do {
+			pp.setOdometry(pose); // [m,m,rad]
+			readPosition();
+			valid = FLOAT_EQ(cx,pose.getPx()) && FLOAT_EQ(cy,pose.getPy()) && FLOAT_EQ(ctheta,pose.getPa());
+		} while(!valid);
+		System.out.printf(">> ODOMETRY SET [%5.5f,%5.5f,%5.5f]\n",x,y,Math.toDegrees(theta)); // DEBUG
+	}
+	
+	// instruct the robot to move along a path
+	private void followPath(Stack<Node> nodepath) {
+		Stack<Node> tmpnodepath = new Stack<Node>(); // don't modify the original
+		tmpnodepath.addAll(nodepath);
+		
+		System.out.println(">> FOLLOWPATH length: " + tmpnodepath.size()); // DEBUG
+		
+		// TODO - HACK - set robot's current odometry (should localize instead)
+		Node currnode = tmpnodepath.pop();
+		setOdometry(currnode.realx,currnode.realy,0.0f);
+		
+		while(!tmpnodepath.isEmpty()) {
+			currnode = tmpnodepath.pop();
+			goTo(currnode.realx, currnode.realy);
+		}
+	}
+	
+	// travel from current location to destination
+	// nx, ny - destination specified in world offset coordinates
+	private void goTo(float nx, float ny) {
+		System.out.printf(">> GOTO [%5.5f,%5.5f]\n",nx,ny); // DEBUG
+		
+		float dx, dy, dtheta, ntheta;
+		float dist = 0.0f, totaldist = 0.0f; 
+		float angle, totalangle;
+		float speed, turnrate;
+		boolean success, turning, movingforward;
 
 		// get starting position from player interface
 		readPosition();
-		
-		// wait for sonar to warm up
-		sp.queryGeometry();
-		while(!sp.isDataReady()){
-			System.out.println("sonar warming up...");
-			readPosition();
-		}
-		printSonarGeometry(); // DEBUG
-		
-		boolean error = false;
-		while(!error) {
-			// read sonar, range[0] is leftmost
-			// -90, -50, -30, -10, 10, 30, 50, 90 degrees
-			PlayerSonarData sonardata = sp.getData();
-			float ranges[] = sonardata.getRanges();
-		
-			/*
-			System.out.print("ranges: [ "); // DEBUG
-			for(int i = 0; i < ranges.length; i++) {
-				System.out.format("%5.4f ", ranges[i]);
-			}
-			System.out.println("]");
-			*/
-			
-			// move based on the mode
-			switch(mode) {
-				case 0:
-					simpleMotion(ranges);
-					break;
-				case 1:
-					// wallFollowMotion(ranges);
-					break;
-			} 
-			
-			// calculate obstacle probabilities
-			float theta;
-			float range;
-			float offsetdist;
-			
-			int angsteps = 30; // [6][30] ensure even: left, ..., mid, ..., right
-			float deltatheta, parttheta;
-			int diststeps = 50; // [10][50] ensure even: 0, ..., dist
-			float deltadist, partdist;
-			float rtheta, rx, ry; // real-world coordinates local to robot
-			
-			// sonar sweep
-			for(int s = 0; s < sonarposes.length; s++) { // DEBUG  s < sonarposes.length
-				theta = sonarposes[s].getPa();
-				range = ranges[s];
-				// System.out.println("sonar: " + s + " theta: " + Math.toDegrees(theta) + " dist: " + dist); // DEBUG
-				
-				// offset distance based on sonar geometry
-				offsetdist = (float) Math.sqrt(Math.pow(sonarposes[s].getPx(),2)+Math.pow(sonarposes[2].getPy(),2));
-				
-				// angular sweep
-				for(int i = 0; i <= angsteps; i++) {
-					deltatheta = (i * sonarviewangle/angsteps) - (sonarviewangle/2);
-					parttheta = theta + deltatheta;
-					// System.out.println("deltatheta: " + Math.toDegrees(deltatheta) + " parttheta: " + Math.toDegrees(parttheta)); // DEBUG
-				
-					// distance sweep
-					for(int j = 0; j <= diststeps; j++) {
-						deltadist = j * (sonarrangemax/diststeps);
-						partdist = deltadist + offsetdist;
-						// System.out.println("deltadist: " + deltadist + " partdist: " + partdist); // DEBUG
-						
-						// determine grid cell
-						rtheta = ctheta + parttheta;
-						rx = (float) Math.cos(rtheta) * partdist + cx;
-						ry = (float) Math.sin(rtheta) * partdist + cy;
-						// System.out.println("rtheta: " + Math.toDegrees(rtheta) + " rx: " + rx + " ry: " + ry); // DEBUG
-						
-						// map.setValue(rx, ry, (1-partdist/8)); // DEBUG
-						map.calcProbOccupancy(rx,ry,range,deltadist,deltatheta);
-					}	
-				}
-			}
-			
-			// update map visuals on a regular basis
-			if(steps % 4 == 0) {
-				map.draw();
-			}
-			
-			// get position from player interface
-			readPosition();
-		}
-	}
 
-	// example obstacle-avoidance motion
-	private void simpleMotion(float ranges[]) {
-		float turnrate, speed;
-		if (ranges[0] + ranges[1] + ranges[2] < ranges[5] + ranges[6] + ranges[7]) {
-			turnrate = -30.0f * (float)Math.PI / 180.0f;
+		// determine next angle
+		dx = nx - cx;
+		dy = ny - cy;
+		dtheta = (float) Math.atan2(dy,dx);
+		
+		totalangle = dtheta-ctheta;
+		angle = 0.0f;
+
+		// prevent values > 360
+		if(totalangle > 2*PI) {
+			totalangle -= 2*PI;
+		}
+		// determine if we should go ccw instead of cw
+		if(totalangle > PI) {
+			totalangle -= 2*PI;
+		}
+
+		// set the turnrate
+		if(totalangle > 0) {
+			turnrate = DEFAULT_ANGULAR_SPEED;
 		} else {
-			turnrate = 30.0f * (float)Math.PI / 180.0f;
+			turnrate = -DEFAULT_ANGULAR_SPEED;
+		}
+
+		ntheta = dtheta;
+		// cout << "NTHETA:         " << radiansToDegrees(ntheta) << endl; // DEBUG
+		// determine if we should go ccw instead of cw
+		if(ntheta > PI) {
+			ntheta -= 2*PI;
+		}
+		// ensure 180 instead of -180 for comparison purposes
+		if(FLOAT_EQ(ntheta,-PI)) {
+			ntheta = PI;
 		}
 		
-		if (ranges[3] < 0.5f) {
-			speed = 0.0f;
-		} else {
-			speed = 0.4f;
-		}
+		speed = 0.0f; // turn in place first
+		totaldist = (float) Math.sqrt(Math.pow(dx,2)+Math.pow(dy,2));
+
+		// DEBUG
+		System.out.printf("DTHETA     %5.5f\n",Math.toDegrees(dtheta));
+		System.out.printf("TOTALANGLE %5.5f\n",Math.toDegrees(totalangle));
+		System.out.printf("TOTALDIST  %5.5f\n",Math.toDegrees(totaldist));
 		
-		// send the command
-		pp.setSpeed(speed, turnrate);
+		// go there
+		success = false;
+		turning = true;
+		movingforward = false;
+		steps = 0;
+		
+		while (!success) {
+			// System.out.println(">> LOOP"); // DEBUG
+			
+			if (pp.getData().getStall() > 0) {
+				System.out.println(">> STALLED - TERMINATE PROGRAM"); // DEBUG
+				System.exit(1);
+			
+			// } else if (FLOAT_EQ(cx,nx) && FLOAT_EQ(cy,ny)) { // TODO - better?
+			} else if(FLOAT_EQ(dist,totaldist)) {	
+				System.out.println(">> DESTINATION REACHED\n"); // DEBUG
+				speed = 0.0f;
+				success = true;
+				movingforward = false;
+			} else {
+				steps++;
+				// are we heading in the right direction?
+				if(turning) { // if turning
+					if(FLOAT_EQ(angle,totalangle)) {
+						System.out.println(">> ORIENTATION REACHED\n"); // DEBUG
+						turnrate = 0.0f;
+						dist = 0.0f;
+						speed = DEFAULT_FORWARD_SPEED;
+						turning = false;
+						movingforward = true;
+					} else {
+						/*
+						// change speed to get better heading if necessary
+						if(FLOAT_EQ(Math.abs(turnrate),DEFAULT_ANGULAR_SPEED) && Math.abs(angle+turnrate/5) > Math.abs(totalangle)) {
+							turnrate = (totalangle-angle)*10;
+							System.out.printf(">> CHANGE TURNRATE: %5.5f\n",Math.toDegrees(turnrate)); // DEBUG
+						}
+						*/
+						// TODO - sim only?
+						turnrate = totalangle - angle;
+						if (Math.abs(turnrate) > MAX_TURNRATE) {
+							turnrate = Math.signum(turnrate) * MAX_TURNRATE;
+						}
+						// angle += turnrate/10; // this is not guaranteed in Java
+						angle += Math.signum(turnrate) * angularDiff(ctheta,otheta);
+						System.out.printf("angle: %5.5f | %5.5f\n",Math.toDegrees(angle),Math.toDegrees(totalangle)); // DEBUG
+					}
+				}
+
+				// change speed to get better position if necessary
+				if(movingforward) { // if moving forward
+					/*
+					if(FLOAT_EQ(speed,DEFAULT_FORWARD_SPEED) && (dist+speed/5) > totaldist) {
+						speed = (totaldist-dist)*10;
+						System.out.printf(">> CHANGE SPEED: %5.5f\n",speed); // DEBUG
+					}
+					*/
+					// TODO - sim only?
+					speed = totaldist - dist;
+					if (Math.abs(speed) > DEFAULT_FORWARD_SPEED) {
+						speed = Math.signum(speed) * DEFAULT_FORWARD_SPEED;
+					}
+					// dist += speed/10;  // this is not guaranteed in Java
+					dist += distance(cx,ox,cy,oy);
+					System.out.printf("dist: %5.5f | %5.5f\n",dist,totaldist); // DEBUG
+				}
+
+				// command the motors
+				System.out.printf("SetSpeed(%5.5f, %5.5f)\n",speed,Math.toDegrees(turnrate));
+				pp.setSpeed(speed, turnrate);
+
+				// get position from player interface
+				readPosition();
+			}
+		}
 	}
 }

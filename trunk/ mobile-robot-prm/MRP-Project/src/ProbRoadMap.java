@@ -8,7 +8,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.Stack;
@@ -27,6 +27,10 @@ import javax.swing.JScrollPane;
 
 public class ProbRoadMap extends JFrame {
 
+	///////////////////////////////////////////////////////////////////
+	// Variables
+	///////////////////////////////////////////////////////////////////
+	
 	private static final long serialVersionUID = 8130028453731235660L;
 	
 	// The robot is [0.50,0.37] m, so use a circular structuring element with a radius of 0.50 m
@@ -54,10 +58,16 @@ public class ProbRoadMap extends JFrame {
 	private int mapdestpts[][]; // destination points in map coordinates
 	private int mapstartpts[][]; // initial robot starting points in map coordinates
 	
+	
+	///////////////////////////////////////////////////////////////////
+	// Methods
+	///////////////////////////////////////////////////////////////////
+	
 	// constructor
-	public ProbRoadMap(int numpts, double destpts[][]) {
-		// System.out.println("Constructor..."); // DEBUG
+	public ProbRoadMap(int numpts, double realdestpts[][]) {
+		this.realdestpts = realdestpts;
 		
+		// System.out.println("Constructor..."); // DEBUG
 
 		// convert real destinations to map destination points
 		/*
@@ -134,6 +144,15 @@ public class ProbRoadMap extends JFrame {
 	private int realDistToMapDist(double realdist) {
 		return (int) (realdist / MPP); 
 	}
+	// convert from map pixel distances to real meter distances
+	private float mapDistToRealDist(int mapdist) {
+		return (float) (mapdist * MPP); 
+	}
+	
+	
+	///////////////////////////////////////////////////////////////////
+	// Display Methods
+	///////////////////////////////////////////////////////////////////
 	
 	// scale
     public void setScaleFactor(double scaleFactor) {
@@ -141,6 +160,11 @@ public class ProbRoadMap extends JFrame {
         scaledimheight = (int)(MAP_HEIGHT * scaleFactor);
     }
 	
+    // clear points and paths on map
+    public void reset() {
+    	draw();
+    }
+    
 	// display the map
 	public void draw() {
 		int val, rgbval;
@@ -234,27 +258,27 @@ public class ProbRoadMap extends JFrame {
 	
 	
 	// draw a path
-	public void drawPath(Node lastnode) {
-    	Stack<Node> nodepath = new Stack<Node>();
-    	nodepath.add(lastnode);
-    	Node prevnode = null;
-    	while((prevnode = lastnode.prev) != null) {
-    		nodepath.add(prevnode);
-    		lastnode = prevnode;
-    	}
+	public void drawPath(Stack<Node> nodepath) {
+		Stack<Node> tmpnodepath = new Stack<Node>(); // don't modify the original
+		tmpnodepath.addAll(nodepath);
     	int cval = Color.GREEN.getRGB();
     	Node n = null;
 		// System.out.println("Path:"); // DEBUG
-    	while(!nodepath.isEmpty()) {
-    		n = nodepath.pop();
+    	while(!tmpnodepath.isEmpty()) {
+    		n = tmpnodepath.pop();
     		// System.out.print(n + " (gscore: " + n.gscore + ")  ->  "); // DEBUG
-    		if(!nodepath.isEmpty()) {
-    			drawLine(mappts[n.index],mappts[nodepath.peek().index],cval);
+    		if(!tmpnodepath.isEmpty()) {
+    			drawLine(mappts[n.index],mappts[tmpnodepath.peek().index],cval);
     		}
     	}
     	// System.out.println(); // DEBUG
     	repaint();
 	}
+	
+	
+	///////////////////////////////////////////////////////////////////
+	// Map Generation Methods
+	///////////////////////////////////////////////////////////////////
 	
 	// determine if at least one path exists between all initial robot starting locations
 	// and all destination points
@@ -277,7 +301,7 @@ public class ProbRoadMap extends JFrame {
 			// DEBUG
 			if(valid) {
 				System.out.println("valid");
-				drawPath(lastnode);
+				drawPath(createPath(lastnode));
 			} else {
 				System.out.println("invalid");
 			}
@@ -381,6 +405,11 @@ public class ProbRoadMap extends JFrame {
 		}
 	}
 	
+	
+	///////////////////////////////////////////////////////////////////
+	// Path Planning Methods
+	///////////////////////////////////////////////////////////////////
+	
 	// plan path using A* search and return the last node in the path if a path exists
 	// indexes specify points in mappts
 	// algorithm based on: http://en.wikipedia.org/wiki/A*_search_algorithm
@@ -469,65 +498,35 @@ public class ProbRoadMap extends JFrame {
 		return null;
 	}
 	
-	
-	// simple node used for A* search
-	class Node implements Comparable<Node> {
-		public int index;
-		public Node prev = null;
-		public double fscore;
-		public double gscore;
-		
-		public Node(int index, double fscore) {
-			this.index = index;
-			this.fscore = fscore;
-			this.gscore = 0.0;
-		}
-		
-		// this never seems to be called
-		public boolean equals(Object other) {
-			boolean retval = false;
-			if(other != null) {
-				if(other instanceof Node) {
-					retval = (index == ((Node)other).index);
-				}
-			}
-			return retval;
-		}
-		
-		public int compareTo(Node other) {
-			int retval = 0;
-			if(index != other.index) {
-				if(index < other.index) {
-					retval = -1;
-				} else if(index > other.index) {
-					retval = 1;
-				}
-			}
-			return retval;
-		}
-		
-		public String toString() {
-			return index + "";
-		}
-		
+	// create a path in stack form by recursing from the last path node to the first
+	public Stack<Node> createPath(Node lastnode) {
+    	Stack<Node> nodepath = new Stack<Node>();
+    	Node prevnode = null;
+    	
+    	// construct the stack
+    	nodepath.add(lastnode);
+    	while((prevnode = lastnode.prev) != null) {
+    		nodepath.add(prevnode);
+    		lastnode = prevnode;
+    	}
+
+    	// determine the real-world coordinate offset values for each node
+    	Node node = null;
+    	Iterator<Node> iter = nodepath.iterator();
+    	while(iter.hasNext()) {
+    		node = iter.next();
+    		node.mapx = mappts[node.index][0];
+    		node.mapy = mappts[node.index][1];
+    		node.realx = mapDistToRealDist(node.mapx - MAP_WIDTH/2);
+    		node.realy = mapDistToRealDist(MAP_HEIGHT/2 - node.mapy);
+    	}
+		return nodepath;
 	}
 	
-	// simple comparator used to keep A* sets sorted
-	// Returns a negative integer, zero, or a positive integer as 
-	// the first argument is less than, equal to, or greater than the second.
-	class NodeComparator implements Comparator<Node> {
-		public int compare(Node node1, Node node2) {
-			int retval = 0;
-			if(node1.fscore != node2.fscore) {
-				if(node1.fscore < node2.fscore) {
-					retval = -1;
-				} else if(node1.fscore > node2.fscore) {
-					retval = 1;
-				}
-			}
-			return retval;
-		}
-	}
+	
+	///////////////////////////////////////////////////////////////////
+	// GUI Classes
+	///////////////////////////////////////////////////////////////////
 	
 	// GUI component for showing the map
 	class MapPanel extends JPanel {
