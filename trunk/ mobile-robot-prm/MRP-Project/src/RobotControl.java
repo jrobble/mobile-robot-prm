@@ -145,6 +145,17 @@ public class RobotControl {
 		}
 	}
 	
+	public void printSonarRanges() {
+		PlayerSonarData sonardata = sp.getData();
+		float ranges[] = sonardata.getRanges();
+		
+		System.out.print("ranges: [ "); // DEBUG
+		for(int i = 0; i < ranges.length; i++) {
+			System.out.format("%5.5f ", ranges[i]);
+		}
+		System.out.println("]");
+	}
+	
 	// theta1 - theta2, ctheta - otheta
 	private float angularDiff(float theta1, float theta2) {
 		float t1 = theta1;
@@ -211,19 +222,24 @@ public class RobotControl {
 		// sp.setSonarPower(1);
 		
 		// initialize the probabilistic road map
-		prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
-		prm.setScaleFactor(2.0);
-		prm.setVisible(true);
-		prm.pack();
+		// prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
+		// prm.setScaleFactor(2.0);
+		// prm.setVisible(true);
+		// prm.pack();
 		
 		// DEBUG plan next path
-		Stack<Node> nodepath = prm.createPath(prm.planPath(0,2));
-		prm.reset();
-		prm.drawPath(nodepath);
+		// Stack<Node> nodepath = prm.createPath(prm.planPath(0,2));
+		// prm.reset();
+		// prm.drawPath(nodepath);
 		
+		// pause();
+		// followPath(nodepath);
 		pause();
-		followPath(nodepath);
-		pause();
+		
+		setOdometry(-15.5f,12.0f,0.0f);
+		// goTo(6.77f,11.30f);
+		// potentialFieldMotion(6.77f,11.30f);
+		potentialFieldMotion(3.1f,-3.5f);
 		
 		System.out.println("Terminating program.");
 		robot.close();
@@ -264,9 +280,156 @@ public class RobotControl {
 		
 		while(!tmpnodepath.isEmpty()) {
 			currnode = tmpnodepath.pop();
-			goTo(currnode.realx, currnode.realy);
+			// goTo(currnode.realx, currnode.realy);
 		}
 	}
+	
+	// move robot according to artificial potential field forces 
+	// from current location to destination
+	// based on: Autonomous Mobile Robots by Siegwart and Nourbaksh pages 267-270
+	private void potentialFieldMotion(float nx, float ny) {
+
+		float fx, fy, fattx, fatty; 
+		float tmpfrepx, tmpfrepy, frepx, frepy;
+		float sonarangle, range, px, py;
+		boolean success = false;
+		PlayerSonarData sonardata;
+		float ranges[] = {};
+		
+		// constants
+		float katt = 0.20f; // [0.20]
+		float krep = 0.20f; // [0.05]
+		float p0 = 2.0f; // object distance of influence
+		
+		while(!success) {
+			// read sonar, range[0] is leftmost
+			// 90, 50, 30, 10, -10, -30, -50, -90 degrees
+			sonardata = sp.getData();
+			ranges = sonardata.getRanges();
+			printSonarRanges(); // DEBUG
+			
+			// calculate attractive force
+			// F_att(q) = - k_att (q - q_goal), where q is a point (x,y) 
+			fattx = -katt * (cx - nx);
+			fatty = -katt * (cy - ny);
+		
+			// calculate repulsive forces for each sonar reading
+			frepx = 0.0f;
+			frepy = 0.0f;
+			
+			for(int i = 0; i < ranges.length; i++) {	
+				range = ranges[i];
+				
+				if(range < p0) {
+					tmpfrepx = 0.0f;
+					tmpfrepy = 0.0f;
+					
+					// account for sonar geometry
+					// range += (float) Math.sqrt( Math.pow(sonarposes[i].getPx(),2) 
+					//	    	                 + Math.pow(sonarposes[i].getPy(),2) );
+					sonarangle = sonarposes[i].getPa();
+					System.out.printf("sonarangle: %5.5f\n",Math.toDegrees(sonarangle)); // DEBUG
+					
+					px = (float) (range * Math.cos(ctheta - sonarangle)); // p(q) wrt x
+					py = (float) (range * Math.sin(ctheta - sonarangle)); // p(q) wrt y
+					System.out.printf("px: %5.5f py: %5.5f\n",px,py); // DEBUG
+					
+					if(!FLOAT_EQ(px,0.0f)) {
+						tmpfrepx = (float) (krep * ( (1/px) - (1/p0) ) * ( 1/Math.pow(px,2) ) * 1);
+					}
+					if(!FLOAT_EQ(py,0.0f)) {
+						tmpfrepy = (float) (krep * ( (1/py) - (1/p0) ) * ( 1/Math.pow(py,2) ) * 1);
+					}
+					
+					frepx += tmpfrepx;
+					frepy += tmpfrepy;
+					
+					System.out.printf("ranges[%d] tmpfrep: [%5.5f, %5.5f] frep: [%5.5f, %5.5f]\n",
+							i,tmpfrepx,tmpfrepy,frepx,frepy); // DEBUG
+				}
+			}
+			
+			// F(q) = F_att(q) + F_rep(q) 
+			fx = fattx + frepx; 
+			fy = fatty + frepy;
+			
+			System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
+			
+			go(fx,fy);
+		}
+	}
+	
+	
+	// dx, dy - change specified in world offset coordinates
+	private void go(float dx, float dy) {
+		System.out.printf(">> GO [%5.5f,%5.5f]\n",dx,dy); // DEBUG
+	
+		float dtheta;
+		float totaldist, totalangle;
+		float speed, turnrate;
+
+		// get starting position from player interface
+		readPosition();
+		
+		// determine next angle
+		dtheta = (float) Math.atan2(dy,dx);
+		totalangle = dtheta-ctheta;
+
+		// prevent values > 360
+		if(totalangle > 2*PI) {
+			totalangle -= 2*PI;
+		}
+		/*
+		// determine if we should go ccw instead of cw
+		if(totalangle > PI) {
+			totalangle -= 2*PI;
+		}
+		*/
+		turnrate = totalangle;
+		
+		// determine next distance
+		totaldist = (float) Math.sqrt(Math.pow(dx,2)+Math.pow(dy,2));
+		speed = 0.0f; // turn in place first
+		
+		
+		// go there
+		if (pp.getData().getStall() > 0) {
+			System.out.println(">> STALLED - TERMINATE PROGRAM"); // DEBUG
+			System.exit(1);
+			
+		} else if(FLOAT_EQ(totaldist,0.0f)) {	
+			System.out.println(">> DESTINATION REACHED\n"); // DEBUG
+			// speed = 0.0f;
+			
+		} else {
+			steps++;
+			
+			System.out.printf("totalangle: %5.5f\n",Math.toDegrees(totalangle)); // DEBUG
+			System.out.printf("totaldist:  %5.5f\n",totaldist); // DEBUG
+
+			//if(FLOAT_EQ(totalangle,0.0f)) {				
+			//	System.out.println(">> ORIENTATION REACHED\n"); // DEBUG
+			//	turnrate = 0.0f;
+				speed = totaldist;
+			//}	
+		}
+		
+		// cap turnrate and speed
+		if(Math.abs(turnrate) > MAX_TURNRATE) {
+			turnrate = Math.signum(turnrate) * MAX_TURNRATE;
+		}
+		if(Math.abs(speed) > DEFAULT_FORWARD_SPEED) {
+			speed = Math.signum(speed) * DEFAULT_FORWARD_SPEED;
+		}
+		
+		// command the motors
+		System.out.printf("SetSpeed(%5.5f, %5.5f)\n",speed,Math.toDegrees(turnrate));
+		pp.setSpeed(speed, turnrate);
+	}
+	
+	
+	
+	
 	
 	// travel from current location to destination
 	// nx, ny - destination specified in world offset coordinates
@@ -356,13 +519,7 @@ public class RobotControl {
 						turning = false;
 						movingforward = true;
 					} else {
-						/*
-						// change speed to get better heading if necessary
-						if(FLOAT_EQ(Math.abs(turnrate),DEFAULT_ANGULAR_SPEED) && Math.abs(angle+turnrate/5) > Math.abs(totalangle)) {
-							turnrate = (totalangle-angle)*10;
-							System.out.printf(">> CHANGE TURNRATE: %5.5f\n",Math.toDegrees(turnrate)); // DEBUG
-						}
-						*/
+
 						// TODO - sim only?
 						turnrate = totalangle - angle;
 						if (Math.abs(turnrate) > MAX_TURNRATE) {
@@ -376,12 +533,7 @@ public class RobotControl {
 
 				// change speed to get better position if necessary
 				if(movingforward) { // if moving forward
-					/*
-					if(FLOAT_EQ(speed,DEFAULT_FORWARD_SPEED) && (dist+speed/5) > totaldist) {
-						speed = (totaldist-dist)*10;
-						System.out.printf(">> CHANGE SPEED: %5.5f\n",speed); // DEBUG
-					}
-					*/
+
 					// TODO - sim only?
 					speed = totaldist - dist;
 					if (Math.abs(speed) > DEFAULT_FORWARD_SPEED) {
