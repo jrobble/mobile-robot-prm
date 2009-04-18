@@ -62,71 +62,29 @@ public class Retriever {
 	// main method
 	public static void main(String args[]) {
 		try {
-			// if(args.length == 1 || args.length == 3)
-			
-			// process the data points file
-			double pts[][] = readPts(args[0]);
-			
-			System.out.println("World destination points:");
-			printPts(pts); // DEBUG
-			
-			// initialize the probabilistic road map
-			ProbRoadMap prm = new ProbRoadMap(500,pts); // [1000] [500]
-			prm.setScaleFactor(2.0);
-			prm.setVisible(true);
-			prm.pack();
-			
-			
-			
-			// for ...
-			/*
-	        ProbRoadMap.Node lastnode = prm.planPath(8,9); // DEBUG - mapdestpt 0 -> 1
-	        if(lastnode != null) {
-	        	prm.drawPath(lastnode);
-	        } else {
-	        	System.out.println("Couldn't plan path!");
-	        }
-	        */
-	        
-
-			
-			while(true) {
-				// DEBUG
-			}
-			
-			
-			/*
-			try {
-				System.out.println("Waiting ...");
-				Thread.sleep(99999999);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			} // DEBUG
-			*/
-			/*
+			// configure robot and process the data points file
+			double realdestpts[][] = null;
 			RobotControl rc = null;
-			int mode = 0;
 			
-			// configure robot
-			if(args.length < 2) {
+			if(args.length == 1) {
 				rc = new RobotControl();
-			}else if(args.length < 4){
+				realdestpts = readPts(args[0]);
+			}else if(args.length == 3){
 				String server = args[0];
 				int port = Integer.parseInt(args[1]);
 				rc = new RobotControl(server,port);
+				realdestpts = readPts(args[2]);
 			}else{
-				System.out.println("Usage: java Retriever [mode]");
-				System.out.println("Usage: java Retriever host port [mode]");
+				System.out.println("Usage: java Retriever pts_file");
+				System.out.println("Usage: java Retriever host port pts_file");
 			}
+
+			if(rc != null) {
+				System.out.println("World destination points:");
+				printPts(realdestpts); // DEBUG
 			
-			// determine movement mode and run
-			if(args.length == 1) {
-				mode = Integer.parseInt(args[0]);
-			} else if(args.length == 3) {
-				mode = Integer.parseInt(args[2]);
+				rc.run(realdestpts);
 			}
-			rc.run(mode);
-			*/
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		}
