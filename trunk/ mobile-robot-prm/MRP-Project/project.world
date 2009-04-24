@@ -55,7 +55,8 @@ pioneer2dx
 (
   name "p3"
   color "magenta"
-  pose [7.5 1 90]
+#  pose [7.5 1 90]
+  pose [-7.81 12.07 90]
 )
 pioneer2dx
 (

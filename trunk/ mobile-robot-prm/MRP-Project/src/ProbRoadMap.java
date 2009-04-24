@@ -41,18 +41,18 @@ public class ProbRoadMap extends JFrame {
 	
 	// raw world map is a 1600*500 file containing byte values of either 0 or 255
 	private static final String filename = "../3large.raw";
-	private static final double WORLD_WIDTH = 131.2;
-	private static final double WORLD_HEIGHT = 41;
-	private static final int MAP_WIDTH  = 1600; // 131.2m
-	private static final int MAP_HEIGHT = 500;  // 41m
-	private static final double MPP = 0.082; // meters per map pixel
-	private static final int PATH_CHECK_INTERVAL = 2; // must be less than minimum obstacle width
+	public static final double WORLD_WIDTH = 131.2;
+	public static final double WORLD_HEIGHT = 41;
+	public static final int MAP_WIDTH  = 1600; // 131.2m
+	public static final int MAP_HEIGHT = 500;  // 41m
+	public static final double MPP = 0.082; // meters per map pixel
+	public static final int PATH_CHECK_INTERVAL = 1; // must be less than minimum obstacle width
 	
 	private BufferedImage img;
 	private int scaledimwidth, scaledimheight;
 	
 	private double realdestpts[][]; // destination points specified in meter offsets from robot starting location
-	private int obstaclemap[][]; // contains values of 0 (no obstacle) or 1 (obstacle)
+	private int obstaclemap[][]; // contains values of 1 (no obstacle) or 0 (obstacle)
 	private int mappts[][]; // [row,col] form, contains random points in PRM
 	private int adjmatrix[][]; // represents paths between PRM points
 	private int mapdestpts[][]; // destination points in map coordinates
@@ -70,16 +70,13 @@ public class ProbRoadMap extends JFrame {
 		// System.out.println("Constructor..."); // DEBUG
 
 		// convert real destinations to map destination points
-		/*
-		realdestpts = destpts;
 		mapdestpts = new int[realdestpts.length][2];
 		for(int i = 0; i < realdestpts.length; i++) {
-			// TODO - account for robot's initial starting location
-			mapdestpts[i][0] = realDistToMapDist(realdestpts[i][0]);
-			mapdestpts[i][1] = realDistToMapDist(realdestpts[i][1]);
+			mapdestpts[i][0] = realDistToMapDist(realdestpts[i][0] + WORLD_WIDTH/2);
+			mapdestpts[i][1] = realDistToMapDist(WORLD_HEIGHT/2 - realdestpts[i][1]);
 		}
-		*/
 		
+		/*
 		// DEBUG - hard-code map destination points
 		mapdestpts = new int[3][2];
 		mapdestpts[0][0] = 712; // upper hallway, right of red robot
@@ -88,6 +85,8 @@ public class ProbRoadMap extends JFrame {
 		mapdestpts[1][1] = 314;
 		mapdestpts[2][0] = 800; // to right of mapdestpt 0
 		mapdestpts[2][1] = 98;
+		*/
+		
 		System.out.println("Map destination points:");
 		Retriever.printPts(mapdestpts);
 		
@@ -279,6 +278,33 @@ public class ProbRoadMap extends JFrame {
 	///////////////////////////////////////////////////////////////////
 	// Map Generation Methods
 	///////////////////////////////////////////////////////////////////
+	
+	// add a new map point - don't do this often
+	public int addPoint(float realx, float realy) {
+		int x = realDistToMapDist(realx + WORLD_WIDTH/2);
+		int y = realDistToMapDist(WORLD_HEIGHT/2 - realy);
+		int numpts = mappts.length;
+		int tmppts[][] = new int[numpts+1][2];
+		
+		for(int i = 0; i < numpts; i++) {
+			tmppts[i][0] = mappts[i][0];
+			tmppts[i][1] = mappts[i][1];
+		}
+		tmppts[numpts][0] = x;
+		tmppts[numpts][1] = y;
+		mappts = tmppts; // reset
+		
+		genAllEdges(); // regenerate all of the edges
+		return numpts; // index of new point
+	}
+	
+	// update the obstacle map with a new obstacle
+	public void setVal(float realx, float realy) {
+		int x = realDistToMapDist(realx + WORLD_WIDTH/2);
+		int y = realDistToMapDist(WORLD_HEIGHT/2 - realy);
+		obstaclemap[x][y] = 0;
+		// System.out.println(">> PRM SETVAL [" + x + ", " + y + "]"); // DEBUG 
+	}
 	
 	// determine if at least one path exists between all initial robot starting locations
 	// and all destination points
