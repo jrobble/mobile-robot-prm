@@ -238,12 +238,6 @@ public class RobotControl {
 		
 		pause();
 		
-		// goTo(6.77f,11.30f);
-		// setOdometry(-15.5f,12.0f,0.0f); // HACK
-		// potentialFieldMotion(6.77f,11.30f);
-		// potentialFieldMotion(6.77f,14.30f);
-		// potentialFieldMotion(3.1f,-3.5f);
-		
 		System.out.println("Terminating program.");
 		robot.close();
 		prm.dispose();
@@ -328,10 +322,6 @@ public class RobotControl {
 			fattx = -katt * (cx - nx);
 			fatty = -katt * (cy - ny);
 			
-			//DEBUG
-			// fattx = 2;
-			// fatty = 0;
-			
 			// cap attractive force
 			// if(fattx > cap) { fattx = cap; }
 			// if(fatty > cap) { fatty = cap; }
@@ -402,22 +392,13 @@ public class RobotControl {
 					// System.exit(0); // DEBUG
 					stop(); 
 					foundObstacle();
-					rotate180();
+					rotate(90);
 					cont = false;
 				}
 			} else {
 				// normal potential field motion
 				go(fx,fy,frepx,frepy,ranges);
 			}
-			
-
-			
-				// stop(); 
-				// foundObstacle();
-				// still = 0;
-				// cont = false;
-				// simpleMotion(ranges);
-
 			
 			// destination reached?
 			float mindist = (float) Math.sqrt( Math.pow(nx-cx, 2) + Math.pow(ny-cy, 2) );
@@ -434,10 +415,10 @@ public class RobotControl {
 	// Actuation Methods
 	///////////////////////////////////////////////////////////////////
 	
-	// rotate the robot 180 degrees
-	private void rotate180() {
+	// rotate the robot a certain number of degrees
+	private void rotate(float degrees) {
 		float angle = 0;
-		float totalangle = (float) Math.toRadians(180);
+		float totalangle = (float) Math.toRadians(degrees);
 		boolean success = false;
 		speed = 0.0f;
 		
@@ -540,14 +521,6 @@ public class RobotControl {
 		
 		// the more we need to turn, the slower we should go
 		speed = speed * (1 - Math.abs((turnrate/MAX_TURNRATE)));
-
-		/*
-		if(!isSafe(ranges)) { 
-			System.out.println(">> NOT SAFE!"); // DEBUG
-			speed = 0.0f; 
-		}
-		*/
-	
 		
 		// go there
 		if (pq.isStalled()) {
