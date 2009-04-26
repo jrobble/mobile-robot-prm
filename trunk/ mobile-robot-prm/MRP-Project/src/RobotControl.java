@@ -5,7 +5,6 @@
  *      Author: jjr0192
  */
 
-import java.util.Random;
 import java.util.Scanner;
 import java.util.Stack;
 
@@ -74,7 +73,6 @@ public class RobotControl {
 	
 	private float ox, oy, otheta, cx, cy, ctheta;
 	private float speed, turnrate;
-	private float omindist, mindist;
 	private int still = 0;
 	private int steps = 0;
 	
@@ -112,10 +110,6 @@ public class RobotControl {
 	public static final float initial_pos7[] = {  0.0f,  -7.0f, 270.0f}; // white   (port 6672)
 	public static final float all_initial_pos[][] = {
 		initial_pos0, initial_pos1, initial_pos2, initial_pos3, initial_pos4, initial_pos5, initial_pos6, initial_pos7 };
-	
-	// store the repulsive forces for each of the sonar over time
-	private float freps[][] = new float[8][2];
-	private int hack = 0;
 	
 	
 	///////////////////////////////////////////////////////////////////
@@ -323,6 +317,21 @@ public class RobotControl {
 		return success;
 	}
 	
+	// determine the closet sonar to the given angle
+	private int getClosestSonarIndex(float angle) {
+		float tmpdiff;
+		float mindiff = Float.POSITIVE_INFINITY;
+		int minindex = -1;
+		for(int i = 0; i < sonarposes.length; i++) {
+			tmpdiff = Math.abs(sonarposes[i].getPa() - angle);
+			if(tmpdiff < mindiff) {
+				mindiff = tmpdiff;
+				minindex = i;
+			}
+		}
+		return minindex;
+	}
+	
 	// move robot according to artificial potential field forces 
 	// from current location to destination
 	// based on: Autonomous Mobile Robots by Siegwart and Nourbaksh pages 267-270
@@ -330,26 +339,22 @@ public class RobotControl {
 
 		float fx, fy, fattx, fatty; 
 		float tmpfrepx, tmpfrepy, frep, frepx, frepy;
-		float sonarangle, range, dirx, diry, realx, realy;
+		float sonarangle, range, dirx, diry;
 		boolean success = false;
 		boolean cont = true;
 		PlayerSonarData sonardata;
 		float ranges[] = {};
 		
 		// constants
-		float katt = 10.20f; // [0.20]
-		float cap = 15.0f; // [10]
+		float katt = 20.0f; // [0.20][10.20]
+		float cap = 20.0f; // [15]
 		// float p0 = 2.5f; // [1.5] [2.5] object distance of influence
 		// float krep = 0.20f; // [0.20]
 		
 		// distance of influence and repulsive force of each front sonar
 		float p0s[]    = { 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f };
 		float kreps[]  = { 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f };
-		// float p0s[]   = { 0.50f, 1.00f, 1.50f, 2.00f, 2.00f, 1.50f, 1.00f, 0.50f };
-		// float kreps[] = { 0.50f, 0.40f, 0.30f, 0.70f, 0.80f, 0.30f, 0.40f, 0.50f };
 		
-		omindist = Float.POSITIVE_INFINITY;
-		mindist = Float.POSITIVE_INFINITY;
 		while(cont && !success) {			
 			// read sonar, range[0] is leftmost
 			// 90, 50, 30, 10, -10, -30, -50, -90 degrees
@@ -369,21 +374,6 @@ public class RobotControl {
 			// cap attractive force
 			if(fattx > cap) { fattx = cap; }
 			if(fatty > cap) { fatty = cap; }
-			
-			/*
-			if(ranges[3] < 1.0f || ranges[4] < 1.0f) {
-				// compare only two sonar - don't allow chance to equalize sum
-				Random rand = new Random();
-				float factor = rand.nextInt(51);
-				if (ranges[0] < ranges[7]) { 
-					fattx += factor * Math.cos(ctheta + PI/2);
-					fatty += factor * Math.sin(ctheta + PI/2);
-				} else {
-					fattx += factor * Math.cos(ctheta - PI/2);
-					fatty += factor * Math.sin(ctheta - PI/2);
-				}
-			}
-			*/
 		
 			// calculate repulsive forces for each sonar reading
 			frepx = 0.0f;
@@ -420,41 +410,18 @@ public class RobotControl {
 					
 					System.out.printf("ranges[%d] frep: %5.5f tmpfrep: [%5.5f, %5.5f] frepxy: [%5.5f, %5.5f]\n",
 						i,frep,tmpfrepx,tmpfrepy,frepx,frepy); // DEBUG
-					
-					// store repulsive forces
-					freps[i][0] = (freps[i][0] + frepx) / 2;
-					freps[i][1] = (freps[i][1] + frepy) / 2;
 				}
 			}
 			
-			
-			// if we've been still for too long do something different
-			if(still > 30 && hack < 4) { // > 50
-				System.out.println(">> STILL"); // DEBUG
-				
-				// can we move forward safely?
-				if(ranges[3] > 1.0f && ranges[4] > 1.0f) {
-					System.out.println(">> NUDGE FORWARD"); // DEBUG
-					readPosition();
-					pp.setSpeed(0.80f, 0.0f);
-					// still = 0;
-				} else if(ranges[0] + ranges[1] + ranges[2] <= ranges[7] + ranges[6] + ranges[5]) {
-					System.out.println(">> NUDGE CCW"); // DEBUG
-					readPosition();
-					pp.setSpeed(0.00f, -PI/2);
-					// pp.setSpeed(0.80f, -PI/2);
-				} else {
-					System.out.println(">> NUDGE CW"); // DEBUG
-					readPosition();
-					// pp.setSpeed(0.80f, PI/2);
-					pp.setSpeed(0.00f, PI/2);
-				}
-				// still = 0;
-				hack += 1;
+			// if we can keep moving forward towards the destination, 
+			// don't consider repulsive forces that will throw us off track
+			// float totalangle = calcTotalAngle(fattx,fatty);
+			if(ranges[3] > 1.0f && ranges[4] > 1.0f &&
+			   ranges[0] > 0.1f && ranges[1] > 0.1f && ranges[2] > 0.1f && 
+			   ranges[5] > 0.1f && ranges[6] > 0.1f && ranges[7] > 0.1f) {
+				System.out.println(">> CONTINUE FORWARD"); // DEBUG
+				go(fattx,fatty);	
 			} else {
-				still = 0;
-				hack = 0;
-				
 				// F(q) = F_att(q) + F_rep(q) 
 				fx = fattx + frepx; 
 				fy = fatty + frepy;
@@ -462,22 +429,6 @@ public class RobotControl {
 				
 				System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
 			}
-					
-				/*
-				} else {
-					// alter repulsive forces
-					frepx = 0.0f;
-					frepy = 0.0f;
-					for(int i = 0; i < 8; i++) {
-						System.out.printf("freps[%d] : [%5.5f, %5.5f]\n",i,freps[i][0],freps[i][1]); // DEBUG
-						frepx += freps[i][0];
-						frepy += freps[i][1];
-					}
-					frepx *= 10;
-					frepy *= 10;
-				}
-				*/
-				
 
 				// stop(); 
 				// foundObstacle();
@@ -486,16 +437,8 @@ public class RobotControl {
 				// simpleMotion(ranges);
 
 			
-			if(still == 0) {
-				for(int i = 0; i < 8; i++) {
-					freps[i][0] = 0;
-					freps[i][1] = 0;
-				}
-			}
-			
 			// destination reached?
-			mindist = (float) Math.sqrt( Math.pow(nx-cx, 2) + Math.pow(ny-cy, 2) );
-			// success = FLOAT_EQ(mindist,0.0f) || (mindist > omindist && mindist < 0.50);
+			float mindist = (float) Math.sqrt( Math.pow(nx-cx, 2) + Math.pow(ny-cy, 2) );
 			success = mindist < 0.50;
 			if(success) { stop(); }
  			
@@ -516,6 +459,9 @@ public class RobotControl {
 		speed = 0.0f; turnrate = 0.0f;
 		pp.setSpeed(speed, turnrate);
 	}
+	
+	// check to see if it's safe to move
+	
 	
 	// example obstacle-avoidance motion
 	private void simpleMotion(float ranges[]) {
@@ -539,6 +485,22 @@ public class RobotControl {
 		pp.setSpeed(speed, turnrate);
 	}
 	
+	// calculate the total angle between the robot and the vector that points to the goal
+	private float calcTotalAngle(float dx, float dy) {
+		float dtheta, totalangle;
+		
+		// determine next angle
+		dtheta = (float) Math.atan2(dy,dx);
+		totalangle = dtheta-ctheta;
+		
+		// prevent values > 360
+		if(totalangle > 2*PI) {
+			totalangle -= 2*PI;
+		}
+		
+		return totalangle;
+	}
+	
 	// dx, dy - change specified in world offset coordinates
 	private void go(float dx, float dy) {
 		System.out.printf(">> GO [%5.5f,%5.5f]\n",dx,dy); // DEBUG
@@ -549,27 +511,28 @@ public class RobotControl {
 		// get position from player interface
 		readPosition();
 		
+		/*
 		// determine next angle
 		dtheta = (float) Math.atan2(dy,dx);
 		totalangle = dtheta-ctheta;
 
 		// always turn ccw
-		/*
-		if(totalangle < 0) {
-			totalangle += 2*PI;
-		}
-		*/
+		// if(totalangle < 0) {
+		//	totalangle += 2*PI;
+		// }
 		
 		// prevent values > 360
 		if(totalangle > 2*PI) {
 			totalangle -= 2*PI;
 		}
-		/*
+		
 		// determine if we should go ccw instead of cw
-		if(totalangle > PI) {
-			totalangle -= 2*PI;
-		}
+		// if(totalangle > PI) {
+		//	totalangle -= 2*PI;
+		// }
 		*/
+		
+		totalangle = calcTotalAngle(dx,dy);
 		
 		System.out.printf("totalangle: %5.5f\n", turnrate); // DEBUG
 		turnrate = totalangle;
@@ -595,15 +558,21 @@ public class RobotControl {
 		if(Math.abs(turnrate) > MAX_TURNRATE) {
 			turnrate = Math.signum(turnrate) * MAX_TURNRATE;
 		}
+		
 		if(Math.abs(speed) > DEFAULT_FORWARD_SPEED) {
 			speed = Math.signum(speed) * DEFAULT_FORWARD_SPEED;
 		}
+		
+		// the more we need to turn, the slower we should go
+		speed = speed * (1 - Math.abs((turnrate/MAX_TURNRATE)));
+	
 		
 		// if we've been standing still for a while, just turn in one direction
 		// we may have reached a minima in the potential field
 		
 		// possibly stop to turn in place if we need to turn a lot
 		
+		/*
 		if(Math.abs(turnrate) > Math.toRadians(40)) {
 			System.out.println("still: " + still); // DEBUG
 			speed = 0.0f;
@@ -612,6 +581,7 @@ public class RobotControl {
 		} else {
 			still = 0;
 		}
+		*/
 		
 		
 		// go there
