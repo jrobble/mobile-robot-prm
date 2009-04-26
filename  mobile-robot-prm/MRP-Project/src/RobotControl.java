@@ -13,7 +13,6 @@ import javaclient2.Position2DInterface;
 import javaclient2.SonarInterface;
 import javaclient2.structures.PlayerConstants;
 import javaclient2.structures.PlayerPose;
-import javaclient2.structures.sonar.PlayerSonarData;
 
 /*
  * Program that solves three tasks in a single framework, both in 
@@ -61,25 +60,20 @@ public class RobotControl {
 		return ((v - EPSILON) < x) && (x < (v + EPSILON));
 	}
 	
-	/*
-	public static boolean FLOAT_GEQ(float x, float v) {
-		return FLOAT_EQ(x,v) || x > v;
-	}
-	*/
-	
 	// class variables
 	private String server = null;
 	private int port = -1;
 	
 	private float ox, oy, otheta, cx, cy, ctheta;
 	private float speed, turnrate;
-	private int still = 0;
 	private int steps = 0;
+	private boolean first = true; //  ODOMETRY HACK
 	
 	private PlayerClient robot = null;
 	private Position2DInterface pp = null;
 	private SonarInterface sp = null;
 	private ProbRoadMap prm = null;
+	private PositionQueue pq = null;
 	
 	// sensor geometry - hardcoded since SonarInterface.getGeom() is inaccurate
 	// forward of robot is positive x, right of robot is positive y, left of robot is negative y
@@ -148,10 +142,8 @@ public class RobotControl {
 	}
 	
 	public void printSonarRanges() {
-		PlayerSonarData sonardata = sp.getData();
-		float ranges[] = sonardata.getRanges();
-		
 		System.out.print("ranges: [ "); // DEBUG
+		float ranges[] = pq.getRanges();
 		for(int i = 0; i < ranges.length; i++) {
 			System.out.format("%5.5f ", ranges[i]);
 		}
@@ -180,34 +172,20 @@ public class RobotControl {
 		return diff;
 	}
 
+	// read positional
 	private void readPosition() {
-		robot.readAll();
 		// keep old position and heading
 		ox = cx;
 		oy = cy;
 		otheta = ctheta;
 		
-		// read new position and heading		
-		PlayerPose pose = pp.getData().getPos();
-		cx = pose.getPx();
-		cy = pose.getPy();
-		ctheta = pose.getPa();
-
-		// System.out.println("ROBOT CTHETA: " + Math.toDegrees(ctheta)); // DEBUG
-		
-		// convert angles from real robot from 0 to 360 range to -180 to 180 range
-		if(ctheta > PI) {
-			ctheta = ctheta - 2*PI;
-		}
-		// ensure 180 instead of -180 for comparison purposes
-		if(FLOAT_EQ(ctheta,-PI)) {
-			ctheta = PI;
-		}
+		pq.readData();
+		cx = pq.getCx();
+		cy = pq.getCy();
+		ctheta = pq.getCtheta();
 		
 		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
 							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
-	    
-	    steps++;
 	}
 	
 	
@@ -218,11 +196,13 @@ public class RobotControl {
 	private void initialize() {
 		// setup client and service proxies
 		robot = new PlayerClient(server,port);
+		robot.setNotThreaded();
 		pp = robot.requestInterfacePosition2D(0,PlayerConstants.PLAYER_OPEN_MODE);
 		// pp.setMotorPower(1);
 		sp = robot.requestInterfaceSonar(0,PlayerConstants.PLAYER_OPEN_MODE);
 		// sp.setSonarPower(1);
-		readPosition(); // warm up
+		pq = new PositionQueue(robot,pp,sp);
+		pq.start();
 	}
 	
 	// activate and control the robot
@@ -245,9 +225,7 @@ public class RobotControl {
 			prm.drawPath(nodepath);
 			// pause();
 			
-			robot.setNotThreaded();
 			success = followPath(nodepath);
-			// robot.runThreaded(900000,0); // stop buffering messages for a while
 			
 			if(!success) {
 				startindex = prm.addPoint(cx,cy);
@@ -278,20 +256,6 @@ public class RobotControl {
 		System.out.println("Continuing\n");
 	}
 	
-	// set the robot's odometry
-	private void setOdometry(float x, float y, float theta) {
-		System.out.printf(">> SET ODOMETRY [%5.5f,%5.5f,%5.5f] ...\n",x,y,Math.toDegrees(theta)); // DEBUG
-		PlayerPose pose = new PlayerPose();
-		pose.setPx(x); pose.setPy(y); pose.setPa((float) Math.toRadians(theta));
-		boolean valid = false;
-		do {
-			pp.setOdometry(pose); // [m,m,rad]
-			readPosition();
-			valid = FLOAT_EQ(cx,pose.getPx()) && FLOAT_EQ(cy,pose.getPy()) && FLOAT_EQ(ctheta,pose.getPa());
-		} while(!valid);
-		System.out.printf(">> ODOMETRY SET [%5.5f,%5.5f,%5.5f]\n",x,y,Math.toDegrees(theta)); // DEBUG
-	}
-	
 	// instruct the robot to move along a path
 	private boolean followPath(Stack<Node> nodepath) {
 		Stack<Node> tmpnodepath = new Stack<Node>(); // don't modify the original
@@ -301,7 +265,10 @@ public class RobotControl {
 		
 		// TODO - HACK - set robot's current odometry (should localize instead)
 		Node currnode = tmpnodepath.pop();
-		setOdometry(currnode.realx,currnode.realy,0.0f);
+		if(first) {
+			pq.setOdometry(currnode.realx,currnode.realy,0.0f);
+			first = false;
+		}
 		
 		boolean success = true;
 		while(!tmpnodepath.isEmpty() && success) {
@@ -314,6 +281,7 @@ public class RobotControl {
 	}
 	
 	// determine the closet sonar to the given angle
+	/*
 	private int getClosestSonarIndex(float angle) {
 		float tmpdiff;
 		float mindiff = Float.POSITIVE_INFINITY;
@@ -327,15 +295,7 @@ public class RobotControl {
 		}
 		return minindex;
 	}
-	
-	// determine if it is safe to move
-	private boolean isSafe(float ranges[]) {
-		boolean safe = true;
-		for(int i = 0; i < ranges.length && safe; i++) {
-			safe = safe && ranges[i] > 0.2f;
-		}
-		return safe;
-	}
+	*/
 	
 	// move robot according to artificial potential field forces 
 	// from current location to destination
@@ -347,8 +307,6 @@ public class RobotControl {
 		float sonarangle, range, dirx, diry;
 		boolean success = false;
 		boolean cont = true;
-		PlayerSonarData sonardata;
-		float ranges[] = {};
 		
 		// constants
 		float katt = 20.0f; // [0.20][10.20]
@@ -363,8 +321,6 @@ public class RobotControl {
 		while(cont && !success) {			
 			// read sonar, range[0] is leftmost
 			// 90, 50, 30, 10, -10, -30, -50, -90 degrees
-			sonardata = sp.getData();
-			ranges = sonardata.getRanges();
 			printSonarRanges(); // DEBUG
 			
 			// calculate attractive force
@@ -384,6 +340,7 @@ public class RobotControl {
 			frepx = 0.0f;
 			frepy = 0.0f;
 				
+			float ranges[] = pq.getRanges();
 			for(int i = 0; i < ranges.length; i++) {
 				range = ranges[i];
 			
@@ -395,7 +352,7 @@ public class RobotControl {
 					 range += (float) Math.sqrt( Math.pow(sonarposes[i].getPx(),2) 
 						    	                 + Math.pow(sonarposes[i].getPy(),2) );
 					sonarangle = sonarposes[i].getPa();
-					System.out.printf("sonarangle: %5.5f\n",Math.toDegrees(sonarangle)); // DEBUG
+					// System.out.printf("sonarangle: %5.5f\n",Math.toDegrees(sonarangle)); // DEBUG
 					
 					// F_rep(q) = k_rep ( 1/p(q) - 1/p0 ) 1/p^2(q)  if p(q) < p0
 					// 0  if p(q) >= p0
@@ -413,8 +370,8 @@ public class RobotControl {
 					frepx += tmpfrepx;
 					frepy += tmpfrepy;
 					
-					System.out.printf("ranges[%d] frep: %5.5f tmpfrep: [%5.5f, %5.5f] frepxy: [%5.5f, %5.5f]\n",
-						i,frep,tmpfrepx,tmpfrepy,frepx,frepy); // DEBUG
+					// System.out.printf("ranges[%d] frep: %5.5f tmpfrep: [%5.5f, %5.5f] frepxy: [%5.5f, %5.5f]\n",
+					//	i,frep,tmpfrepx,tmpfrepy,frepx,frepy); // DEBUG
 				}
 			}
 			
@@ -422,25 +379,26 @@ public class RobotControl {
 			fx = fattx + frepx; 
 			fy = fatty + frepy;
 			
-			System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
+			// System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
 
 
 			// what % of the force is opposing the robot's current heading?
 			float oppx = (float) (frepx * Math.cos(ctheta));
 			float oppy = (float) (frepy * Math.sin(ctheta));
 			float oppratio = Math.abs(oppx/oppy);
-			System.out.printf(">> oppx: %f5.5 oppy: %f5.5 oppratio: %f5.5\n",oppx,oppy,oppratio); // DEBUG
+			// System.out.printf(">> oppx: %f5.5 oppy: %f5.5 oppratio: %f5.5\n",oppx,oppy,oppratio); // DEBUG
 			
 			if(oppratio > 50.0f) {
 				// if we can keep moving forward towards the destination
+				float buff = 0.3f;
 				if(ranges[3] > 1.0f && ranges[4] > 1.0f &&
-				   ranges[0] > 0.2f && ranges[1] > 0.2f && ranges[2] > 0.2f && 
-				   ranges[5] > 0.2f && ranges[6] > 0.2f && ranges[7] > 0.2f) {
+				   ranges[0] > buff && ranges[1] > buff && ranges[2] > buff && 
+				   ranges[5] > buff && ranges[6] > buff && ranges[7] > buff) {
 					System.out.println(">> CONTINUE FORWARD"); // DEBUG
 					go(fattx,fatty,0,0,ranges);
 				} else {
 					// replan
-					System.out.println(">> REPLAN"); // DEBUG
+					System.out.println("\n\n>> REPLAN\n"); // DEBUG
 					// System.exit(0); // DEBUG
 					stop(); 
 					foundObstacle();
@@ -514,8 +472,6 @@ public class RobotControl {
 		pp.setSpeed(speed, turnrate);
 	}
 	
-	// check to see if it's safe to move
-	
 	
 	// example obstacle-avoidance motion
 	private void simpleMotion(float ranges[]) {
@@ -559,32 +515,10 @@ public class RobotControl {
 	private void go(float dx, float dy, float repx, float repy, float ranges[]) {
 		System.out.printf(">> GO [%5.5f,%5.5f]\n",dx,dy); // DEBUG
 	
-		float dtheta;
 		float totaldist, totalangle;
 
 		// get position from player interface
 		readPosition();
-		
-		/*
-		// determine next angle
-		dtheta = (float) Math.atan2(dy,dx);
-		totalangle = dtheta-ctheta;
-
-		// always turn ccw
-		// if(totalangle < 0) {
-		//	totalangle += 2*PI;
-		// }
-		
-		// prevent values > 360
-		if(totalangle > 2*PI) {
-			totalangle -= 2*PI;
-		}
-		
-		// determine if we should go ccw instead of cw
-		// if(totalangle > PI) {
-		//	totalangle -= 2*PI;
-		// }
-		*/
 		
 		totalangle = calcTotalAngle(dx,dy);
 		
@@ -594,21 +528,6 @@ public class RobotControl {
 		// determine next distance
 		totaldist = (float) Math.sqrt(Math.pow(dx,2)+Math.pow(dy,2));
 		speed = totaldist;
-		
-		/*
-		PlayerSonarData sonardata = sp.getData();
-		float ranges[] = sonardata.getRanges();
-		
-		if(Math.abs(turnrate) > Math.toRadians(120) && (ranges[3] < 1.0f || ranges[4] < 1.0f)) {
-			System.out.println("back: " + still); // DEBUG
-			speed = - DEFAULT_FORWARD_SPEED;
-			// turnrate = 0.0f;
-			turnrate =  (float) Math.toRadians(40);
-		} 
-		*/
-
-
-		
 		
 		// cap turnrate and speed
 		if(Math.abs(turnrate) > MAX_TURNRATE) {
@@ -630,31 +549,12 @@ public class RobotControl {
 		*/
 	
 		
-		// if we've been standing still for a while, just turn in one direction
-		// we may have reached a minima in the potential field
-		
-		// possibly stop to turn in place if we need to turn a lot
-		
-		/*
-		if(Math.abs(turnrate) > Math.toRadians(40)) {
-			System.out.println("still: " + still); // DEBUG
-			speed = 0.0f;
-			// speed = 0.1f;
-			still += 1;
-		} else {
-			still = 0;
-		}
-		*/
-		
-		
 		// go there
-		if (pp.getData().getStall() > 0) {
+		if (pq.isStalled()) {
 			System.out.println(">> STALLED - TERMINATE PROGRAM"); // DEBUG
 			System.exit(1);
 			
 		} 
-		
-		steps++;
 			
 		// System.out.printf("totalangle: %5.5f\n",Math.toDegrees(totalangle)); // DEBUG
 		// System.out.printf("totaldist:  %5.5f\n",totaldist); // DEBUG
@@ -800,16 +700,11 @@ public class RobotControl {
 		float theta, dist, offsetdist;;
 		float rtheta, rx, ry; // real-world coordinates local to robot
 		
-		// read sonar, range[0] is leftmost
-		// 90, 50, 30, 10, -10, -30, -50, -90 degrees
-		PlayerSonarData sonardata = sp.getData();
-		float ranges[] = sonardata.getRanges();
-		
 		// determine the closest boundary
 		int rangeindex = -1;
 		float minrange = Float.POSITIVE_INFINITY;
 		
-		
+		float ranges[] = pq.getRanges();
 		for(int i = 0; i < ranges.length; i++) {
 			if(ranges[i] < minrange) { rangeindex = i; minrange = ranges[i]; }
 		}
@@ -843,40 +738,6 @@ public class RobotControl {
 			
 			i += 1.0;
 		}
-		
-		/*
-		// sonar sweep
-		for(int s = 0; s < sonarposes.length; s++) { // DEBUG  s < sonarposes.length
-			theta = sonarposes[s].getPa();
-			range = ranges[s];
-			// System.out.println("sonar: " + s + " theta: " + Math.toDegrees(theta) + " dist: " + dist); // DEBUG
-			
-			// offset distance based on sonar geometry
-			offsetdist = (float) Math.sqrt(Math.pow(sonarposes[s].getPx(),2)+Math.pow(sonarposes[2].getPy(),2));
-			
-			// angular sweep
-			for(int i = 0; i <= angsteps; i++) {
-				deltatheta = (i * sonarviewangle/angsteps) - (sonarviewangle/2);
-				parttheta = theta + deltatheta;
-				// System.out.println("deltatheta: " + Math.toDegrees(deltatheta) + " parttheta: " + Math.toDegrees(parttheta)); // DEBUG
-			
-				// distance sweep
-				for(int j = 0; j < 3; j++) {
-					deltadist = (float) (range + (j * ProbRoadMap.MPP));
-					partdist = deltadist + offsetdist;
-					// System.out.println("deltadist: " + deltadist + " partdist: " + partdist); // DEBUG
-					
-					// determine grid cell
-					rtheta = ctheta + parttheta;
-					rx = (float) Math.cos(rtheta) * partdist + cx;
-					ry = (float) Math.sin(rtheta) * partdist + cy;
-					// System.out.println("rtheta: " + Math.toDegrees(rtheta) + " rx: " + rx + " ry: " + ry); // DEBUG
-					
-					prm.setVal(rx, ry);
-				}	
-			}
-		}
-		*/
 		
 		prm.draw(); // DEBUG
 		System.out.println(">> UPDATED PRM"); 

@@ -17,6 +17,7 @@ public class PositionQueue extends Thread {
 	
 	private float ox, oy, otheta, cx, cy, ctheta;
 	private int steps = 0;
+	private float[] ranges;
 	
 	private PlayerClient robot = null;
 	private Position2DInterface pp = null;
@@ -26,6 +27,7 @@ public class PositionQueue extends Thread {
 		this.robot = robot;
 		this.pp = pp;
 		this.sp = sp;
+		warmup();
 	}
 	
 	public float getCx() { return cx; }
@@ -34,9 +36,18 @@ public class PositionQueue extends Thread {
 	
 	public float getCtheta() { return ctheta; }
 	
-	// must read positional and sonar data
-	public void readPosition() {
-		robot.readAll();
+	public int getSteps() { return steps; }
+	
+	public synchronized boolean isStalled() {
+		return pp.getData().getStall() > 0;
+	}
+	
+	public float[] getRanges() { 
+		updateSonar(); // on-demand
+		return ranges; 
+	}
+	
+	private synchronized void updatePosition() {
 		// keep old position and heading
 		ox = cx;
 		oy = cy;
@@ -59,21 +70,58 @@ public class PositionQueue extends Thread {
 			ctheta = PI;
 		}
 		
-		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
-							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
-	    
-	    steps++;
-	    
+		// System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
+		//					cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
+	}
+	
+	private synchronized void updateSonar() {
 	    PlayerSonarData sonardata = sp.getData();
+		ranges = sonardata.getRanges();
+	}
+	
+	// must read positional and sonar data
+	public synchronized void readData() {
+		robot.readAll();
+		updatePosition();
+		
+		// doing this here causes a buffer underflow exception
+		// so read sonar data on-demand
+		// updateSonar();
+	    
+		steps++;
+	}
+	
+	// may not be necessary
+	private synchronized void warmup() {
+		while(!sp.isDataReady()) {
+			robot.readAll();
+			updatePosition();
+		}
+		// System.out.println("PositionQueue warmed up..."); // DEBUG
 	}
 	
 	public void run() {
 		while(true) {
-			readPosition();
+			readData();
 		}
 	}
 	
+	// set the robot's odometry
+	public synchronized void setOdometry(float x, float y, float theta) {
+		System.out.printf(">> SET ODOMETRY [%5.5f,%5.5f,%5.5f] ...\n",x,y,Math.toDegrees(theta)); // DEBUG
+		PlayerPose pose = new PlayerPose();
+		pose.setPx(x); pose.setPy(y); pose.setPa((float) Math.toRadians(theta));
+		boolean valid = false;
+		do {
+			pp.setOdometry(pose); // [m,m,rad]
+			readData();
+			valid = FLOAT_EQ(cx,pose.getPx()) && FLOAT_EQ(cy,pose.getPy()) && FLOAT_EQ(ctheta,pose.getPa());
+		} while(!valid);
+		System.out.printf(">> ODOMETRY SET [%5.5f,%5.5f,%5.5f]\n",x,y,Math.toDegrees(theta)); // DEBUG
+	}
 	
+	
+	// TEST
 	public static void main(String args[]) {
 		PlayerClient robot = new PlayerClient("localhost", 6665);
 		Position2DInterface pp = robot.requestInterfacePosition2D(0,PlayerConstants.PLAYER_OPEN_MODE);
@@ -88,7 +136,6 @@ public class PositionQueue extends Thread {
 			robot.readAll();
 			pose = pp.getData().getPos();
 			sonardata = sp.getData();
-			// ranges = sonardata.getRanges();
 		}
 
 		
@@ -114,7 +161,7 @@ public class PositionQueue extends Thread {
 		
 		System.out.println(">> PROB???");
 		while(true) {
-			pq.readPosition();
+			pq.readData();
 			System.out.printf(">> GOT cx: %5.5f cy: %5.5f ctheta: %5.5f\n",pq.getCx(),pq.getCy(),Math.toDegrees(pq.getCtheta()));
 			pp.setSpeed(0.0f, PI/8); // causes buffer issue
 		}
