@@ -43,7 +43,8 @@ pioneer2dx
 (
   name "p1"
   color "green"
-  pose [-16.5 12 180]
+#  pose [-16.5 12 180]		orig
+  pose [-6.71 12.85 180]
 )
 pioneer2dx
 (
@@ -55,8 +56,9 @@ pioneer2dx
 (
   name "p3"
   color "magenta"
-#  pose [7.5 1 90]
-  pose [-7.81 12.07 90]
+#  pose [7.5 1 90]			orig
+#  pose [-7.81 12.07 90]	middle
+  pose [-7.81 11.72 90]
 )
 pioneer2dx
 (

@@ -332,6 +332,15 @@ public class RobotControl {
 		return minindex;
 	}
 	
+	// determine if it is safe to move
+	private boolean isSafe(float ranges[]) {
+		boolean safe = true;
+		for(int i = 0; i < ranges.length && safe; i++) {
+			safe = safe && ranges[i] > 0.2f;
+		}
+		return safe;
+	}
+	
 	// move robot according to artificial potential field forces 
 	// from current location to destination
 	// based on: Autonomous Mobile Robots by Siegwart and Nourbaksh pages 267-270
@@ -372,14 +381,14 @@ public class RobotControl {
 			// fatty = 0;
 			
 			// cap attractive force
-			if(fattx > cap) { fattx = cap; }
-			if(fatty > cap) { fatty = cap; }
+			// if(fattx > cap) { fattx = cap; }
+			// if(fatty > cap) { fatty = cap; }
 		
 			// calculate repulsive forces for each sonar reading
 			frepx = 0.0f;
 			frepy = 0.0f;
-			
-			for(int i = 0; i < ranges.length; i++) {	
+				
+			for(int i = 0; i < ranges.length; i++) {
 				range = ranges[i];
 			
 				if(range < p0s[i]) {
@@ -413,23 +422,42 @@ public class RobotControl {
 				}
 			}
 			
-			// if we can keep moving forward towards the destination, 
-			// don't consider repulsive forces that will throw us off track
-			// float totalangle = calcTotalAngle(fattx,fatty);
-			if(ranges[3] > 1.0f && ranges[4] > 1.0f &&
-			   ranges[0] > 0.1f && ranges[1] > 0.1f && ranges[2] > 0.1f && 
-			   ranges[5] > 0.1f && ranges[6] > 0.1f && ranges[7] > 0.1f) {
-				System.out.println(">> CONTINUE FORWARD"); // DEBUG
-				go(fattx,fatty);	
-			} else {
-				// F(q) = F_att(q) + F_rep(q) 
-				fx = fattx + frepx; 
-				fy = fatty + frepy;
-				go(fx,fy);
-				
-				System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
-			}
+			// F(q) = F_att(q) + F_rep(q) 
+			fx = fattx + frepx; 
+			fy = fatty + frepy;
+			
+			System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
 
+
+			// what % of the force is opposing the robot's current heading?
+			float oppx = (float) (frepx * Math.cos(ctheta));
+			float oppy = (float) (frepy * Math.sin(ctheta));
+			float oppratio = Math.abs(oppx/oppy);
+			System.out.printf(">> oppx: %f5.5 oppy: %f5.5 oppratio: %f5.5\n",oppx,oppy,oppratio); // DEBUG
+			
+			if(oppratio > 50.0f) {
+				// if we can keep moving forward towards the destination
+				if(ranges[3] > 1.0f && ranges[4] > 1.0f &&
+				   ranges[0] > 0.2f && ranges[1] > 0.2f && ranges[2] > 0.2f && 
+				   ranges[5] > 0.2f && ranges[6] > 0.2f && ranges[7] > 0.2f) {
+					System.out.println(">> CONTINUE FORWARD"); // DEBUG
+					go(fattx,fatty,0,0,ranges);
+				} else {
+					// replan
+					System.out.println(">> REPLAN"); // DEBUG
+					// System.exit(0); // DEBUG
+					stop(); 
+					foundObstacle();
+					rotate180();
+					cont = false;
+				}
+			} else {
+				// normal potential field motion
+				go(fx,fy,frepx,frepy,ranges);
+			}
+			
+
+			
 				// stop(); 
 				// foundObstacle();
 				// still = 0;
@@ -451,6 +479,36 @@ public class RobotControl {
 	///////////////////////////////////////////////////////////////////
 	// Actuation Methods
 	///////////////////////////////////////////////////////////////////
+	
+	// rotate the robot 180 degrees
+	private void rotate180() {
+		float angle = 0;
+		float totalangle = (float) Math.toRadians(180);
+		boolean success = false;
+		speed = 0.0f;
+		
+		while (!success) {
+			// get position from player interface
+			readPosition();
+			
+			if(FLOAT_EQ(angle,totalangle)) {
+				success = true;
+			} else {
+				// TODO - sim only?
+				turnrate = totalangle - angle;
+				if (Math.abs(turnrate) > MAX_TURNRATE) {
+					turnrate = Math.signum(turnrate) * MAX_TURNRATE;
+				}
+				// angle += turnrate/10; // this is not guaranteed in Java
+				angle += Math.signum(turnrate) * angularDiff(ctheta,otheta);
+				// System.out.printf("angle: %5.5f | %5.5f\n",Math.toDegrees(angle),Math.toDegrees(totalangle)); // DEBUG
+			}
+
+			// command the motors
+			System.out.printf("SetSpeed(%5.5f, %5.5f)\n",speed,Math.toDegrees(turnrate));
+			pp.setSpeed(speed, turnrate);
+		}
+	}
 	
 	// stop the robot
 	private void stop() {
@@ -502,7 +560,7 @@ public class RobotControl {
 	}
 	
 	// dx, dy - change specified in world offset coordinates
-	private void go(float dx, float dy) {
+	private void go(float dx, float dy, float repx, float repy, float ranges[]) {
 		System.out.printf(">> GO [%5.5f,%5.5f]\n",dx,dy); // DEBUG
 	
 		float dtheta;
@@ -553,6 +611,8 @@ public class RobotControl {
 		} 
 		*/
 
+
+		
 		
 		// cap turnrate and speed
 		if(Math.abs(turnrate) > MAX_TURNRATE) {
@@ -565,6 +625,13 @@ public class RobotControl {
 		
 		// the more we need to turn, the slower we should go
 		speed = speed * (1 - Math.abs((turnrate/MAX_TURNRATE)));
+
+		/*
+		if(!isSafe(ranges)) { 
+			System.out.println(">> NOT SAFE!"); // DEBUG
+			speed = 0.0f; 
+		}
+		*/
 	
 		
 		// if we've been standing still for a while, just turn in one direction
@@ -746,13 +813,13 @@ public class RobotControl {
 		int rangeindex = -1;
 		float minrange = Float.POSITIVE_INFINITY;
 		
-		/*
+		
 		for(int i = 0; i < ranges.length; i++) {
 			if(ranges[i] < minrange) { rangeindex = i; minrange = ranges[i]; }
 		}
-		*/
-		rangeindex = 3;
-		minrange = ranges[3];
+		
+		// rangeindex = 3;
+		// minrange = ranges[3];
 		
 		System.out.printf(">> minrange: %5.5f rangeindex: %d\n",minrange,rangeindex); // DEBUG
 		
@@ -762,7 +829,8 @@ public class RobotControl {
 		minrange += offsetdist;
 
 		// angular sweep
-		for(int i = -90; i <= 90; i++) {
+		float i = -7.5f;
+		while(i < 7.5) {
 			theta = (float) Math.toRadians(i) + sonarposes[rangeindex].getPa();
 			
 			// distance sweep
@@ -775,7 +843,9 @@ public class RobotControl {
 				ry = (float) Math.sin(rtheta) * dist + cy;
 				
 				prm.setVal(rx, ry);
-			}	
+			}
+			
+			i += 1.0;
 		}
 		
 		/*
