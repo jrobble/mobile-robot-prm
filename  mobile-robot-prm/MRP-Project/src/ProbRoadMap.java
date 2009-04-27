@@ -47,6 +47,7 @@ public class ProbRoadMap extends JFrame {
 	public static final int MAP_HEIGHT = 500;  // 41m
 	public static final double MPP = 0.082; // meters per map pixel
 	public static final int PATH_CHECK_INTERVAL = 1; // must be less than minimum obstacle width
+	public static final int POINT_BUFFER_ZONE = 5;
 	
 	private BufferedImage img;
 	private int scaledimwidth, scaledimheight;
@@ -372,8 +373,22 @@ public class ProbRoadMap extends JFrame {
 		while(count < numdestpts + numpts) {
 			y = rand.nextInt(MAP_HEIGHT);
 			x = rand.nextInt(MAP_WIDTH);
-			// determine if point is valid (not inside an obstacle)
-			if(obstaclemap[x][y] != 0) {
+			
+			// determine if point is valid (no obstacle in buffer zone)
+			boolean valid = true;
+			int minx = Math.max(x-POINT_BUFFER_ZONE, 0);
+			int maxx = Math.min(x+POINT_BUFFER_ZONE, MAP_WIDTH-1);
+			int miny = Math.max(y-POINT_BUFFER_ZONE, 0);
+			int maxy = Math.min(y+POINT_BUFFER_ZONE, MAP_HEIGHT-1);
+			// System.out.println(">> minx: " + minx + " maxx: " + maxx + " miny: " + miny + " maxy: " + maxy); // DEBUG
+			
+			for(int i = minx; i <= maxx && valid; i++) {
+				for(int j = miny; j <= maxy && valid; j++) {
+					valid = (obstaclemap[i][j] != 0);
+				}
+			}
+			
+			if(valid) {
 				mappts[count][0] = x;
 				mappts[count][1] = y;
 				count += 1;

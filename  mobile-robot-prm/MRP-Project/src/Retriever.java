@@ -22,18 +22,24 @@ public class Retriever {
 		Scanner scan = new Scanner(new FileReader(filename));
 		double pts[][] = new double[20][2];
 		int count = 0;
+		String line;
 		while(scan.hasNext()) {
-			pts[count][0] = scan.nextDouble();
-			pts[count][1] = scan.nextDouble();
-			count += 1;
-			// expand point array if necessary
-			if(count+1 > pts.length && scan.hasNext()) {
-				System.out.println("Expand point array."); // DEBUG
-				double tmppts[][] = pts;
-				pts = new double[pts.length*2][2];
-				for(int i = 0; i < tmppts.length; i++) {
-					pts[i][0] = tmppts[i][0];
-					pts[i][1] = tmppts[i][1];
+			line = scan.nextLine();
+			Scanner lscan = new Scanner(line);
+			boolean comment = lscan.hasNext("#");
+			if(!comment) {
+				pts[count][0] = lscan.nextDouble();
+				pts[count][1] = lscan.nextDouble();
+				count += 1;
+				// expand point array if necessary
+				if(count+1 > pts.length && scan.hasNext()) {
+					System.out.println("Expand point array."); // DEBUG
+					double tmppts[][] = pts;
+					pts = new double[pts.length*2][2];
+					for(int i = 0; i < tmppts.length; i++) {
+						pts[i][0] = tmppts[i][0];
+						pts[i][1] = tmppts[i][1];
+					}
 				}
 			}
 		}
