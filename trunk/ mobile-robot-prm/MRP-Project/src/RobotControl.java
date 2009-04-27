@@ -183,6 +183,7 @@ public class RobotControl {
 		cx = pq.getCx();
 		cy = pq.getCy();
 		ctheta = pq.getCtheta();
+		steps = pq.getSteps();
 		
 		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
 							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
@@ -223,7 +224,8 @@ public class RobotControl {
 			Stack<Node> nodepath = prm.createPath(prm.planPath(startindex,8)); // robot 0 -> dest 0
 			prm.reset();
 			prm.drawPath(nodepath);
-			// pause();
+			prm.drawAllPoints();
+			pause(); // see path
 			
 			success = followPath(nodepath);
 			
@@ -304,13 +306,15 @@ public class RobotControl {
 		
 		// constants
 		float katt = 20.0f; // [0.20][10.20]
-		float cap = 20.0f; // [15]
+		float cap = 200.0f; // [20]
 		// float p0 = 2.5f; // [1.5] [2.5] object distance of influence
 		// float krep = 0.20f; // [0.20]
 		
 		// distance of influence and repulsive force of each front sonar
-		float p0s[]    = { 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f, 2.50f };
-		float kreps[]  = { 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f, 8.20f };
+		float krep = 10.0f; // [8.20f]
+		float p0 = 2.5f; // [2.5f]
+		float p0s[]    = { p0, p0, p0, 5.0f, 5.0f, p0, p0, p0 };
+		float kreps[]  = { krep, krep, krep, krep, krep, krep, krep, krep };
 		
 		while(cont && !success) {			
 			// read sonar, range[0] is leftmost
@@ -339,7 +343,7 @@ public class RobotControl {
 					tmpfrepy = 0.0f;
 					
 					// account for sonar geometry
-					 range += (float) Math.sqrt( Math.pow(sonarposes[i].getPx(),2) 
+					range += (float) Math.sqrt( Math.pow(sonarposes[i].getPx(),2) 
 						    	                 + Math.pow(sonarposes[i].getPy(),2) );
 					sonarangle = sonarposes[i].getPa();
 					// System.out.printf("sonarangle: %5.5f\n",Math.toDegrees(sonarangle)); // DEBUG
@@ -369,21 +373,28 @@ public class RobotControl {
 			fx = fattx + frepx; 
 			fy = fatty + frepy;
 			
-			// System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
+			System.out.printf("fatt: [%5.5f, %5.5f] f: [%5.5f, %5.5f]\n",fattx,fatty,fx,fy); // DEBUG
 
 
 			// what % of the force is opposing the robot's current heading?
 			float oppx = (float) (frepx * Math.cos(ctheta));
 			float oppy = (float) (frepy * Math.sin(ctheta));
 			float oppratio = Math.abs(oppx/oppy);
-			// System.out.printf(">> oppx: %f5.5 oppy: %f5.5 oppratio: %f5.5\n",oppx,oppy,oppratio); // DEBUG
+			System.out.printf(">> oppx: %f5.5 oppy: %f5.5 oppratio: %f5.5\n",oppx,oppy,oppratio); // DEBUG
 			
-			if(oppratio > 50.0f) {
+			// TODO oppx + oppy ???
+			float opph = (float) Math.sqrt( Math.pow(oppx,2) + Math.pow(oppy,2) );
+			System.out.printf(">> >> >> >> frepx: %f5.5 frepy: %f5.5\n",frepx,frepy); // DEBUG
+			System.out.printf(">> >> >> >> opph: %f5.5\n",opph); // DEBUG
+			
+			
+			// if(oppratio > 50.0f || Math.abs(oppx) > 30.0f) {
+			if(opph > 8.0f) {
 				// if we can keep moving forward towards the destination
-				float buff = 0.3f;
-				if(ranges[3] > 1.0f && ranges[4] > 1.0f &&
-				   ranges[0] > buff && ranges[1] > buff && ranges[2] > buff && 
-				   ranges[5] > buff && ranges[6] > buff && ranges[7] > buff) {
+				float buff = 0.25f;
+				if(ranges[3] > 1.0f && ranges[4] > 1.0f && // 1.0f
+				   ranges[0] > 0.0f && ranges[1] > 0.0f && ranges[2] > buff && 
+				   ranges[5] > buff && ranges[6] > 0.0f && ranges[7] > 0.0f) {
 					System.out.println(">> CONTINUE FORWARD"); // DEBUG
 					go(fattx,fatty,0,0,ranges);
 				} else {
@@ -392,7 +403,11 @@ public class RobotControl {
 					// System.exit(0); // DEBUG
 					stop(); 
 					foundObstacle();
-					rotate(90);
+					
+					// rotate towards goal
+					float totalangle = calcTotalAngle(fattx,fatty);
+					rotate(Math.signum(totalangle) * 45);
+					
 					cont = false;
 				}
 			} else {
@@ -402,6 +417,7 @@ public class RobotControl {
 			
 			// destination reached?
 			float mindist = (float) Math.sqrt( Math.pow(nx-cx, 2) + Math.pow(ny-cy, 2) );
+			// success = mindist < 0.50;
 			success = mindist < 0.50;
 			if(success) { stop(); }
  			
@@ -521,6 +537,7 @@ public class RobotControl {
 		
 		// the more we need to turn, the slower we should go
 		speed = speed * (1 - Math.abs((turnrate/MAX_TURNRATE)));
+		
 		
 		// go there
 		if (pq.isStalled()) {
