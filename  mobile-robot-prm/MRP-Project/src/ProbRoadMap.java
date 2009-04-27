@@ -48,6 +48,7 @@ public class ProbRoadMap extends JFrame {
 	public static final double MPP = 0.082; // meters per map pixel
 	public static final int PATH_CHECK_INTERVAL = 1; // must be less than minimum obstacle width
 	public static final int POINT_BUFFER_ZONE = 5;
+	public static final int PATH_BUFFER_ZONE = 3;
 	
 	private BufferedImage img;
 	private int scaledimwidth, scaledimheight;
@@ -127,10 +128,25 @@ public class ProbRoadMap extends JFrame {
 	        while(!valid) {
 	        	System.out.println("Computing probabilistic road map ..."); // DEBUG
 	        	genAllPoints(numpts);
+	        	
+	        	draw();
+	        	this.drawAllPoints();
+	            System.out.println(">> ALL POINTS"); // DEBUG
+	    		setScaleFactor(2.0);
+	    		setVisible(true);
+	    		pack();
+	            Retriever.pause(); // interactive
+	        	
 	            genAllEdges();
 				draw();
 				drawAllEdges();
 	            valid = checkPaths();
+	            
+	            System.out.println(">> ALL EDGES"); // DEBUG
+	    		setScaleFactor(2.0);
+	    		setVisible(true);
+	    		pack();
+	            Retriever.pause(); // interactive
 	       }
 	       drawAllPoints();
 		   drawDestPoints();
@@ -295,7 +311,11 @@ public class ProbRoadMap extends JFrame {
 		tmppts[numpts][1] = y;
 		mappts = tmppts; // reset
 		
-		genAllEdges(); // regenerate all of the edges
+		// generate new edges
+		for(int i = 0; i < numpts-1; i++) {
+			genEdge(numpts,i);
+		}
+		
 		return numpts; // index of new point
 	}
 	
@@ -396,6 +416,67 @@ public class ProbRoadMap extends JFrame {
 		}
 	}
 	
+	// generate an edge
+	private void genEdge(int startindex, int endindex) {
+		int x, y;
+		double oldy, oldx, curry, currx, endy, endx;
+		double theta, totaldist, dist, deltay, deltax;
+		boolean cont;
+		
+		// determine if there are obstacles along the path
+		currx = mappts[startindex][0]; curry = mappts[startindex][1];
+		endx  = mappts[endindex][0];   endy  = mappts[endindex][1];
+		totaldist = Math.sqrt( Math.pow(endx-currx, 2) + Math.pow(endy-curry, 2) );
+		theta = Math.atan2(endy-curry, endx-currx);
+		dist = 0.0;
+		
+		cont = true;
+		while(dist < totaldist && cont) {
+			// step along path
+			oldy = curry; oldx = currx;
+			deltay = Math.sin(theta) * PATH_CHECK_INTERVAL;
+			deltax = Math.cos(theta) * PATH_CHECK_INTERVAL;  
+			curry = curry + deltay;
+			currx = currx + deltax;
+			dist += Math.sqrt( Math.pow(currx-oldx, 2) + Math.pow(curry-oldy, 2) );
+			y = (int)Math.round(curry); x = (int)Math.round(currx);
+			
+			
+			// determine if point is valid (no obstacle in buffer zone)
+			int minx = Math.max(x-PATH_BUFFER_ZONE, 0);
+			int maxx = Math.min(x+PATH_BUFFER_ZONE, MAP_WIDTH-1);
+			int miny = Math.max(y-PATH_BUFFER_ZONE, 0);
+			int maxy = Math.min(y+PATH_BUFFER_ZONE, MAP_HEIGHT-1);
+			// System.out.println(">> minx: " + minx + " maxx: " + maxx + " miny: " + miny + " maxy: " + maxy); // DEBUG
+			
+			for(int k = minx; k <= maxx && cont; k++) {
+				for(int l = miny; l <= maxy && cont; l++) {
+					cont = (obstaclemap[k][l] > 0);
+				}
+			}
+		}
+		// add valid points to adjacency matrix
+		if(cont) {
+			adjmatrix[startindex][endindex] = 1;
+			adjmatrix[endindex][startindex] = 1;
+		}
+	}
+	
+	// generate edges between points
+	private void genAllEdges() {
+		// determine if there is a path between every pair of points
+		int numpts = mappts.length;
+		adjmatrix = new int[numpts][numpts];
+		for(int i = 0; i < numpts; i++) {
+			for(int j = i; j < numpts; j++) {
+				if(i != j) { // if not same point
+					genEdge(i,j);
+				}
+			}
+		}
+	}
+	
+	/*
 	// generate edges between points
 	private void genAllEdges() {
 		// determine if there is a path between every pair of points
@@ -427,14 +508,6 @@ public class ProbRoadMap extends JFrame {
 						y = (int)Math.round(curry); x = (int)Math.round(currx);
 						cont = obstaclemap[x][y] > 0;
 						
-						/*
-						if(cont) {
-							// DEBUG
-							int cval = Color.BLUE.getRGB();
-							img.setRGB(x,y,cval);
-							repaint();
-						}
-						*/
 					}
 					// add valid points to adjacency matrix
 					if(cont) {
@@ -445,6 +518,7 @@ public class ProbRoadMap extends JFrame {
 			}
 		}
 	}
+	*/
 	
 	
 	///////////////////////////////////////////////////////////////////

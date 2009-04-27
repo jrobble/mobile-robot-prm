@@ -212,9 +212,9 @@ public class RobotControl {
 		
 		// initialize the probabilistic road map
 		prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
-		prm.setScaleFactor(2.0);
-		prm.setVisible(true);
-		prm.pack();
+		// prm.setScaleFactor(2.0);
+		// prm.setVisible(true);
+		// prm.pack();
 		
 		boolean success = false;
 		int startindex = 0; // red robot
@@ -225,7 +225,7 @@ public class RobotControl {
 			prm.reset();
 			prm.drawPath(nodepath);
 			prm.drawAllPoints();
-			pause(); // see path
+			Retriever.pause(); // see path
 			
 			success = followPath(nodepath);
 			
@@ -238,18 +238,11 @@ public class RobotControl {
 			}
 		}
 		
-		pause();
+		Retriever.pause();
 		
 		System.out.println("Terminating program.");
 		robot.close();
 		prm.dispose();
-	}
-	
-	// pause for user input
-	private void pause() {
-		System.out.print("\nPress enter to continue ... ");
-		Scanner scan = new Scanner(System.in); scan.nextLine(); // pause
-		System.out.println("Continuing\n");
 	}
 	
 	// instruct the robot to move along a path
@@ -687,46 +680,39 @@ public class RobotControl {
 	private void foundObstacle() {
 		System.out.println(">> FOUND OBSTACLE"); // DEBUG
 		
-		float theta, dist, offsetdist;;
+		float range, theta, dist, offsetdist;
 		float rtheta, rx, ry; // real-world coordinates local to robot
-		
-		// determine the closest boundary
-		int rangeindex = -1;
-		float minrange = Float.POSITIVE_INFINITY;
 		
 		float ranges[] = pq.getRanges();
 		for(int i = 0; i < ranges.length; i++) {
-			if(ranges[i] < minrange) { rangeindex = i; minrange = ranges[i]; }
-		}
-		
-		// rangeindex = 3;
-		// minrange = ranges[3];
-		
-		System.out.printf(">> minrange: %5.5f rangeindex: %d\n",minrange,rangeindex); // DEBUG
-		
-		// offset distance based on sonar geometry
-		offsetdist = (float) Math.sqrt( Math.pow(sonarposes[rangeindex].getPx(),2) 
-				                      + Math.pow(sonarposes[rangeindex].getPy(),2));
-		minrange += offsetdist;
-
-		// angular sweep
-		float i = -7.5f;
-		while(i < 7.5) {
-			theta = (float) Math.toRadians(i) + sonarposes[rangeindex].getPa();
+			range = ranges[i];
 			
-			// distance sweep
-			for(int j = 0; j < 3; j++) {
-				dist = (float) (minrange + (j * ProbRoadMap.MPP));
-
-				// determine grid cell
-				rtheta = ctheta + theta;
-				rx = (float) Math.cos(rtheta) * dist + cx;
-				ry = (float) Math.sin(rtheta) * dist + cy;
-				
-				prm.setVal(rx, ry);
+			if(range < 2.5f) {
+				// offset distance based on sonar geometry
+				offsetdist = (float) Math.sqrt( Math.pow(sonarposes[i].getPx(),2) 
+						                      + Math.pow(sonarposes[i].getPy(),2));
+				range += offsetdist;
+		
+				// angular sweep
+				float d = -7.5f;
+				while(d < 7.5) {
+					theta = (float) Math.toRadians(d) + sonarposes[i].getPa();
+					
+					// distance sweep
+					for(int p = 0; p < 3; p++) {
+						dist = (float) (range + (p * ProbRoadMap.MPP));
+		
+						// determine grid cell
+						rtheta = ctheta + theta;
+						rx = (float) Math.cos(rtheta) * dist + cx;
+						ry = (float) Math.sin(rtheta) * dist + cy;
+						
+						prm.setVal(rx, ry);
+					}
+					
+					d += 1.0;
+				}
 			}
-			
-			i += 1.0;
 		}
 		
 		prm.draw(); // DEBUG

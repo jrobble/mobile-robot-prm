@@ -64,6 +64,13 @@ public class Retriever {
 			System.out.println("point " + i + ": [" + pts[i][0] + "," + pts[i][1] + "]");
 		}
 	}
+	
+	// pause for user input
+	public static void pause() {
+		System.out.print("\nPress enter to continue ... ");
+		Scanner scan = new Scanner(System.in); scan.nextLine(); // pause
+		System.out.println("Continuing\n");
+	}
 
 	// main method
 	public static void main(String args[]) {
