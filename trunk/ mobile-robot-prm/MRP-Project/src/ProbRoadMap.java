@@ -48,7 +48,7 @@ public class ProbRoadMap extends JFrame {
 	public static final double MPP = 0.082; // meters per map pixel
 	public static final int PATH_CHECK_INTERVAL = 1; // must be less than minimum obstacle width
 	public static final int POINT_BUFFER_ZONE = 5;
-	public static final int PATH_BUFFER_ZONE = 3;
+	public static final int PATH_BUFFER_ZONE = 4;
 	
 	private BufferedImage img;
 	private int scaledimwidth, scaledimheight;
@@ -128,26 +128,19 @@ public class ProbRoadMap extends JFrame {
 	        while(!valid) {
 	        	System.out.println("Computing probabilistic road map ..."); // DEBUG
 	        	genAllPoints(numpts);
-	        	
-	        	draw();
-	        	this.drawAllPoints();
-	            System.out.println(">> ALL POINTS"); // DEBUG
-	    		setScaleFactor(2.0);
-	    		setVisible(true);
-	    		pack();
-	            Retriever.pause(); // interactive
-	        	
 	            genAllEdges();
-				draw();
-				drawAllEdges();
 	            valid = checkPaths();
-	            
-	            System.out.println(">> ALL EDGES"); // DEBUG
-	    		setScaleFactor(2.0);
-	    		setVisible(true);
-	    		pack();
-	            Retriever.pause(); // interactive
 	       }
+	        
+            draw();
+			drawAllEdges();
+            System.out.println(">> ALL EDGES"); // DEBUG
+    		setScaleFactor(2.0);
+    		setVisible(true);
+    		pack();
+            Retriever.pause(); // interactive
+            reset();
+	        
 	       drawAllPoints();
 		   drawDestPoints();
 		   drawStartPoints();
@@ -311,10 +304,21 @@ public class ProbRoadMap extends JFrame {
 		tmppts[numpts][1] = y;
 		mappts = tmppts; // reset
 		
+		// make room in the adjmatrix
+		int tmpmatrix[][] = new int[numpts+1][numpts+1];
+		for(int i = 0; i < numpts; i++) {
+			for(int j = 0; j < numpts; j++) {
+				tmpmatrix[i][j] = adjmatrix[i][j];
+			}
+		}
+		adjmatrix = tmpmatrix;
+		
 		// generate new edges
+		/*
 		for(int i = 0; i < numpts-1; i++) {
 			genEdge(numpts,i);
 		}
+		*/
 		
 		return numpts; // index of new point
 	}
@@ -441,7 +445,7 @@ public class ProbRoadMap extends JFrame {
 			dist += Math.sqrt( Math.pow(currx-oldx, 2) + Math.pow(curry-oldy, 2) );
 			y = (int)Math.round(curry); x = (int)Math.round(currx);
 			
-			
+			/*
 			// determine if point is valid (no obstacle in buffer zone)
 			int minx = Math.max(x-PATH_BUFFER_ZONE, 0);
 			int maxx = Math.min(x+PATH_BUFFER_ZONE, MAP_WIDTH-1);
@@ -454,6 +458,29 @@ public class ProbRoadMap extends JFrame {
 					cont = (obstaclemap[k][l] > 0);
 				}
 			}
+			*/
+			
+			// left
+			float ldeltay, ldeltax, ltheta = (float) (theta + Math.toRadians(90));
+			int ly, lx;
+			for(int l = 0; l < PATH_BUFFER_ZONE && cont; l++) {
+				ldeltay = (float) Math.sin(ltheta) * l;  ldeltax = (float) Math.cos(ltheta) * l;
+				ly = (int)Math.round(ldeltay+y); 		 lx = (int)Math.round(ldeltax+x);
+				// System.out.println("theta: " + Math.toDegrees(theta) + " ltheta: " + Math.toDegrees(ltheta) + 
+				//		           " ldeltay: " + ldeltay + " ldeltax: " + ldeltax + " y: " + y + " x: " + x + " ly:" + ly + " lx: " + lx); // DEBUG
+				cont = (obstaclemap[lx][ly] > 0);
+			}
+			
+			// right
+			float rdeltay, rdeltax, rtheta = (float) (theta - Math.toRadians(90));
+			int ry, rx;
+			for(int r = 1; r < PATH_BUFFER_ZONE && cont; r++) {
+				rdeltay = (float) Math.sin(rtheta) * r;  rdeltax = (float) Math.cos(rtheta) * r;
+				ry = (int)Math.round(rdeltay+y); 		 rx = (int)Math.round(rdeltax+x);
+				cont = (obstaclemap[rx][ry] > 0);
+			}
+			
+			
 		}
 		// add valid points to adjacency matrix
 		if(cont) {
@@ -463,7 +490,7 @@ public class ProbRoadMap extends JFrame {
 	}
 	
 	// generate edges between points
-	private void genAllEdges() {
+	public void genAllEdges() {
 		// determine if there is a path between every pair of points
 		int numpts = mappts.length;
 		adjmatrix = new int[numpts][numpts];
@@ -620,7 +647,8 @@ public class ProbRoadMap extends JFrame {
     	
     	// construct the stack
     	nodepath.add(lastnode);
-    	while((prevnode = lastnode.prev) != null) {
+    	if(lastnode == null) { System.out.println("!! LASTNODENULL"); } // DEBUG
+    	while((prevnode = lastnode.prev) != null) { // TODO - NullPointerException
     		nodepath.add(prevnode);
     		lastnode = prevnode;
     	}
