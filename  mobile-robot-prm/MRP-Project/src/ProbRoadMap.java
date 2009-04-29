@@ -132,14 +132,15 @@ public class ProbRoadMap extends JFrame {
 	            valid = checkPaths();
 	       }
 	        
-            draw();
-			drawAllEdges();
-            System.out.println(">> ALL EDGES"); // DEBUG
-    		setScaleFactor(2.0);
-    		setVisible(true);
-    		pack();
-            Retriever.pause(); // interactive
-            reset();
+	       // DEBUG
+	       draw();
+		   drawAllEdges();
+	       System.out.println(">> SHOW EDGES");
+		   setScaleFactor(2.0);
+		   setVisible(true);
+		   pack();
+	       Retriever.pause(); // interactive
+	       reset();
 	        
 	       drawAllPoints();
 		   drawDestPoints();
