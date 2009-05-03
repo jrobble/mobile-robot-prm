@@ -50,7 +50,7 @@ public class RobotControl {
 	// global variables
 	public static final float PI = 3.14159265358979323846f; 
 	public static final float EPSILON = 0.001f;
-	public static final float DEFAULT_FORWARD_SPEED  = 0.80f;  // m/s [1.00]
+	public static final float DEFAULT_FORWARD_SPEED  = 0.50f;  // m/s [1.00] [0.80]
 	public static final float DEFAULT_BACKWARD_SPEED = 0.20f;  // m/s
 	public static final float DEFAULT_ANGULAR_SPEED  = (PI/4); // rads/s (10 * 16-18 deg., 10 * .279-.314 rads, is about pioneer max)
 	public static final float MAX_TURNRATE = (float) (Math.PI/4); // rads [PI/8]
@@ -97,14 +97,16 @@ public class RobotControl {
 	private float sonarviewangle = (float) (Math.toRadians(15.0));
 	
 	// initial robot positions in global world coordinates [x,y,theta]
-	public static final float initial_pos0[] = {-15.5f,  12.0f,   0.0f}; // red     (port 6665)
+	// public static final float initial_pos0[] = {-15.5f,  12.0f,   0.0f}; // red     (port 6665)
+	public static final float initial_pos0[] = {7.8f, 12f, -90f}; // DEBUG
+	
 	public static final float initial_pos1[] = {-16.5f,  12.0f, 180.0f}; // green   (port 6666)
 	public static final float initial_pos2[] = { -5.0f, -10.5f,   0.0f}; // cyan    (port 6667)
 	public static final float initial_pos3[] = {  7.5f,   1.0f,  90.0f}; // magenta (port 6668)
 	public static final float initial_pos4[] = {-48.0f,  12.0f,  90.0f}; // yellow  (port 6669)
-	public static final float initial_pos5[] = {-48.0f, -10.5f, 270.0f}; // grey    (port 6670)
+	public static final float initial_pos5[] = {-48.0f, -10.5f, -90.0f}; // grey    (port 6670)
 	public static final float initial_pos6[] = {  7.5f,  -5.0f,  90.0f}; // blue    (port 6671)
-	public static final float initial_pos7[] = {  0.0f,  -7.0f, 270.0f}; // white   (port 6672)
+	public static final float initial_pos7[] = {  0.0f,  -7.0f, -90.0f}; // white   (port 6672)
 	public static final float all_initial_pos[][] = {
 		initial_pos0, initial_pos1, initial_pos2, initial_pos3, initial_pos4, initial_pos5, initial_pos6, initial_pos7 };
 	
@@ -159,12 +161,12 @@ public class RobotControl {
 		float t2 = theta2;
 		if(t1 < 0) { t1 = t1 + 2*PI; }
 		if(t2 < 0) { t2 = t2 + 2*PI; }
-		/*
+		
 		System.out.println( 
 				" theta1: " + Math.toDegrees(theta1) + 
 		        " theta2: " + Math.toDegrees(theta2) +
 		        " diff: "   + Math.toDegrees(t1 - t2)); // DEBUG
-		*/
+		
 		float diff = t1 - t2;
 		if(diff < 0) {
 			diff += 2*PI;
@@ -190,6 +192,8 @@ public class RobotControl {
 		
 		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
 							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
+		
+		System.out.println("timeelapsed: " ); // DEBUG
 		
 		if (pq.isStalled()) {
 			// TODO - restart
@@ -229,7 +233,7 @@ public class RobotControl {
 		// TODO - localize initial robot position here ...
 		
 		// destinations are indexed in map after possible 8 initial positions
-		int startindex = 2; // HACK - 0 red robot, 2 cyan robot
+		int startindex = 0; // HACK - 0 red robot, 2 cyan robot
 		boolean pathsuccess = true;
 		for(int d = 8; d < realdestpts.length + 8 && pathsuccess; d++) {
 		
@@ -280,12 +284,15 @@ public class RobotControl {
 		Stack<Node> tmpnodepath = new Stack<Node>(); // don't modify the original
 		tmpnodepath.addAll(nodepath);
 		
-		System.out.println(">> FOLLOWPATH length: " + tmpnodepath.size()); // DEBUG
+		System.out.println(">> START FOLLOWPATH length: " + tmpnodepath.size() + 
+				           " planned dist: " + (tmpnodepath.firstElement().gscore*ProbRoadMap.MPP)); // DEBUG
+		pq.tic();
 		
 		// TODO - HACK - set robot's current odometry (should localize instead)
 		Node currnode = tmpnodepath.pop();
 		if(first) {
-			pq.setOdometry(currnode.realx,currnode.realy,0.0f);
+			pq.setOdometry(currnode.realx,currnode.realy,(float) Math.toRadians(-90.0));
+			readPosition();
 			first = false;
 		}
 		
@@ -296,6 +303,8 @@ public class RobotControl {
 			success = potentialFieldMotion(currnode.realx,currnode.realy);
 		}
 		
+		System.out.println(">> END FOLLOWPATH actual dist: " + pq.getTotalDist()); // DEBUG
+		pq.toc();
 		return success;
 	}
 	
@@ -424,10 +433,12 @@ public class RobotControl {
 		boolean success = false;
 		boolean wallsuccess = false;
 		boolean cont = true;
+		System.out.println("potentialFieldMotion nx: " + nx + " ny: " + ny); // DEBUG
 		
 		// rotate in place towards initial waypoint
 		readPosition();
 		float totalangle = calcTotalAngle(nx-cx,ny-cy);
+		// System.out.println("totalangle: " + Math.toDegrees(totalangle)); // DEBUG
 		rotate((float) Math.toDegrees(totalangle));
 		
 		while(cont && !success) {	
@@ -619,7 +630,7 @@ public class RobotControl {
 			dtheta = PI;
 		}
 		
-		totalangle = dtheta-ctheta;
+		totalangle = dtheta-ctheta; // CONSIDERS CURRENT ANGLE
 		
 		// prevent values > 360
 		if(totalangle > 2*PI) {
