@@ -15,9 +15,13 @@ public class PositionQueue extends Thread {
 		return ((v - EPSILON) < x) && (x < (v + EPSILON));
 	}
 	
-	private float ox, oy, otheta, cx, cy, ctheta;
+	private float ox, oy, otheta;
+	private float cx = 0.0f, cy = 0.0f, ctheta;
+	float totaldist = 0.0f;
 	private int steps = 0;
 	private float[] ranges;
+	
+	private long starttime;
 	
 	private PlayerClient robot = null;
 	private Position2DInterface pp = null;
@@ -30,6 +34,28 @@ public class PositionQueue extends Thread {
 		warmup();
 	}
 	
+	public void tic() {
+		starttime = System.currentTimeMillis();
+	}
+	
+	public float toc() {
+		// Get elapsed time in seconds
+		long etimemills = System.currentTimeMillis()-starttime;
+		printHMS(etimemills/1000);
+		return etimemills;
+	}
+	
+	// taken from: http://www.javaworld.com/javaworld/jw-03-2001/jw-0330-time.html
+	public void printHMS(long timeInSeconds) {
+		int hours, minutes, seconds;
+	    hours =   (int) (timeInSeconds / 3600);
+	    timeInSeconds = timeInSeconds - (hours * 3600);
+	    minutes = (int) (timeInSeconds / 60);
+	    timeInSeconds = timeInSeconds - (minutes * 60);
+	    seconds = (int) timeInSeconds;
+	    System.out.println(hours + " hour(s) " + minutes + " minute(s) " + seconds + " second(s)");
+	}
+	
 	public float getCx() { return cx; }
 	
 	public float getCy() { return cy; }
@@ -37,6 +63,8 @@ public class PositionQueue extends Thread {
 	public float getCtheta() { return ctheta; }
 	
 	public int getSteps() { return steps; }
+	
+	public float getTotalDist() { return totaldist; }
 	
 	public synchronized boolean isStalled() {
 		return pp.getData().getStall() > 0;
@@ -58,6 +86,8 @@ public class PositionQueue extends Thread {
 		cx = pose.getPx();
 		cy = pose.getPy();
 		ctheta = pose.getPa();
+		
+		totaldist += Math.sqrt( Math.pow(cx-ox, 2) + Math.pow(cy-oy, 2) );
 
 		// System.out.println("ROBOT CTHETA: " + Math.toDegrees(ctheta)); // DEBUG
 		
@@ -110,13 +140,14 @@ public class PositionQueue extends Thread {
 	public synchronized void setOdometry(float x, float y, float theta) {
 		System.out.printf(">> SET ODOMETRY [%5.5f,%5.5f,%5.5f] ...\n",x,y,Math.toDegrees(theta)); // DEBUG
 		PlayerPose pose = new PlayerPose();
-		pose.setPx(x); pose.setPy(y); pose.setPa((float) Math.toRadians(theta));
+		pose.setPx(x); pose.setPy(y); pose.setPa(theta);
 		boolean valid = false;
 		do {
 			pp.setOdometry(pose); // [m,m,rad]
 			readData();
 			valid = FLOAT_EQ(cx,pose.getPx()) && FLOAT_EQ(cy,pose.getPy()) && FLOAT_EQ(ctheta,pose.getPa());
 		} while(!valid);
+		totaldist = 0.0f;
 		System.out.printf(">> ODOMETRY SET [%5.5f,%5.5f,%5.5f]\n",x,y,Math.toDegrees(theta)); // DEBUG
 	}
 	
