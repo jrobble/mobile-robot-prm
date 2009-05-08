@@ -37,8 +37,8 @@ pioneer2dx
 (
   name "p0"
   color "red"
-#  pose [-15.5 12 0]
-  pose [7.8 12 -90]
+  pose [-15.5 12 0] 
+#  pose [7.8 12 -90] mod
 )
 pioneer2dx
 (

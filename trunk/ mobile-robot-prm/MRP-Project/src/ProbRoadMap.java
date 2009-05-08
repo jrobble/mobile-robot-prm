@@ -691,9 +691,28 @@ public class ProbRoadMap extends JFrame {
         }
     }
 	
+	/*
+	 * 
+	 */
 	public int getObstacleMapVal( int x, int y )
 	{
 	    return obstaclemap[x][y];
+	}
+	
+	/*
+	 * 
+	 */
+	public double get_world_height()
+	{
+		return WORLD_HEIGHT;
+	}
+	
+	/*
+	 * 
+	 */
+	public double get_world_width()
+	{
+		return WORLD_WIDTH;
 	}
 }
 
