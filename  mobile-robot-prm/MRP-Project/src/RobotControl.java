@@ -78,6 +78,9 @@ public class RobotControl {
 	private ProbRoadMap prm = null;
 	private PositionQueue pq = null;
 	
+	private int loc_robot = 3;
+	private boolean runRobot = true;
+	
 	// sensor geometry - hardcoded since SonarInterface.getGeom() is inaccurate
 	// forward of robot is positive x, right of robot is positive y, left of robot is negative y
 	private PlayerPose sonarposes[] = new PlayerPose[8];
@@ -95,6 +98,7 @@ public class RobotControl {
 	private float sonarrangemin = 0.0f;
 	private float sonarrangemax = 5.0f;
 	private float sonarviewangle = (float) (Math.toRadians(15.0));
+	private float[] degrees = { -90f, -50f, -30f, -10f, 10f, 30f, 50f, 90f }; // sonar spacings
 	
 	// initial robot positions in global world coordinates [x,y,theta]
 	// public static final float initial_pos0[] = {-15.5f,  12.0f,   0.0f}; // red     (port 6665)
@@ -110,6 +114,25 @@ public class RobotControl {
 	public static final float all_initial_pos[][] = {
 		initial_pos0, initial_pos1, initial_pos2, initial_pos3, initial_pos4, initial_pos5, initial_pos6, initial_pos7 };
 	
+	
+	
+	// readings from robot 1
+	public static final float sensor_reading0[] = { 1.29f, 1.59311f, 2.33622f, 5f, 5f, 3.20788f, 2.20349f, 1.79001f, };
+
+        // readings from robot 2
+	public static final float sensor_reading1[] = { 1.79001f, 2.20348f, 3.20788f, 5f, 5f, 2.33622f, 1.59311f, 1.45f, };
+        
+        // readings from robot 3
+	public static final float sensor_reading2[] = { 1.19f, 1.47103f, 2.16187f, 4.3171f, 5f, 1.95262f, 1.32452f, 1.07001f, };
+        
+        // readings from robot 5
+	public static final float sensor_reading4[] = { 5.0f, 1.61927f, 1.40129f, 1.25477f, 1.25477f, 1.57783f, 1.80799f, 5f,  };
+        
+        // readings from robot 6
+	public static final  float sensor_reading5[] = { 5.0f, 1.53438f, 1.33508f, 1.03394f, 1.03394f, 1.15854f, 1.42125f, 5f, };
+        
+        // readings from robot 8
+	public static final float sensor_reading7[] = { 5.0f, 2.63747f, 1.75436f, 1.75807f, 0.693641f, 0.55797f, 0.347962f, 0.27001f };
 	
 	///////////////////////////////////////////////////////////////////
 	// Methods
@@ -233,7 +256,15 @@ public class RobotControl {
 		// TODO - localize initial robot position here ...
 		
 		// destinations are indexed in map after possible 8 initial positions
-		int startindex = 0; // HACK - 0 red robot, 2 cyan robot
+		//int startindex = 0; // HACK - 0 red robot, 2 cyan robot
+		
+		int startindex = determineRobot();
+		
+		System.out.println( "-------------------------------------" );
+		System.out.println( "\n\n\n\t----- robot # " + startindex + " -----\n\n\n" );
+		System.out.println( "-------------------------------------" );
+		
+		
 		boolean pathsuccess = true;
 		for(int d = 8; d < realdestpts.length + 8 && pathsuccess; d++) {
 		
@@ -291,16 +322,23 @@ public class RobotControl {
 		// TODO - HACK - set robot's current odometry (should localize instead)
 		Node currnode = tmpnodepath.pop();
 		if(first) {
-			pq.setOdometry(currnode.realx,currnode.realy,(float) Math.toRadians(-90.0));
+			pq.setOdometry(currnode.realx,currnode.realy, ctheta);
 			readPosition();
 			first = false;
 		}
+		
+		relocalize();
 		
 		boolean success = true;
 		while(!tmpnodepath.isEmpty() && success) {
 			currnode = tmpnodepath.pop();
 			// goTo(currnode.realx, currnode.realy);
 			success = potentialFieldMotion(currnode.realx,currnode.realy);
+			
+			if( success )
+			{
+			    relocalize();
+			}
 		}
 		
 		System.out.println(">> END FOLLOWPATH actual dist: " + pq.getTotalDist()); // DEBUG
@@ -1003,5 +1041,281 @@ public class RobotControl {
 		}
 	}
 	*/
+	/*
+	 * 
+	 * determine the robot in which we're working with
+	 * 
+	 */
+	public int determineRobot()
+	{
+	    float distance = 0.0f;
+	    float ranges[] = pq.getRanges();
+		
+	    if( checkRanges( sensor_reading0, ranges ) )
+	    {
+		loc_robot = 0;
+	    }
+	    
+	    else if( checkRanges( sensor_reading1, ranges ) )
+	    {
+		loc_robot = 1;
+	    }
+	    else if( checkRanges( sensor_reading2, ranges ) )
+	    {
+		loc_robot = 2;
+	    }
+	    else if( checkRanges( sensor_reading4, ranges ) )
+	    {
+		loc_robot = 4;
+	    }
+	    else if( checkRanges( sensor_reading5, ranges ) )
+	    {
+		loc_robot = 5;
+	    }
+	    else if( checkRanges( sensor_reading7, ranges ) )
+	    {
+		loc_robot = 7;
+	    }
+	    else
+	    {
+		
+		// turn 180 degrees - pretty much, turn the robot around
+		rotate( -180 );
+		
+		
+		while ( runRobot )
+		{
+		    ranges = pq.getRanges();
+		    
+		    distance = (float)Math.sqrt( ( pq.getCx() * pq.getCy() ) + ( pq.getCx() * pq.getCy() ) );
+		    
+		    
+		    
+		    
+		    if(  distance > 5.5 &&  ranges[4] < 0.25 )
+		    {
+			loc_robot = 6;
+			runRobot = false;
+		    }
+		    
+		    else if ( distance > 6 )
+		    {
+			runRobot = false;
+		    }
+		    
+		    pp.setSpeed( 0.2f, 0.0f ); //speed, turnrate
+		}
+	    }
+	    
+	    
+	    /*
+	     * 
+	     * 
+	     * set the odometry here 
+	     * use PositionQueue class to update the values
+	     * 
+	     * 
+	     */
+	    
+	    System.out.println( "\nThe goodies before: " +
+		    pq.getCx() + ", " + pq.getCy() + ", " + pq.getCtheta() );
+	    
+	    
+	    pq.setOdometry( pq.getCx() + all_initial_pos[loc_robot][0], 
+		    		pq.getCy() + all_initial_pos[loc_robot][1] , 
+		    		pq.getCtheta() + all_initial_pos[loc_robot][2] ); 
+	    
+	    System.out.println( "The goodies after: " +
+		    pq.getCx() + ", " + pq.getCy() + ", " + pq.getCtheta() );
+	    
+	    return loc_robot;
+	    
+	}
 	
+	/*
+	 * 
+	 * 
+	 * 
+	 */
+	private static boolean checkRanges( float[] readings, float[] ranges )
+	{
+	    for( int x = 0; x < readings.length; ++x )
+	    {
+		if( Math.abs( readings[x] - ranges[x] ) > EPSILON )
+		{
+		    return false;
+		}
+	    }
+	    return true;
+	}
+	
+	
+	/*
+	 * 
+	 */
+	private static boolean checkRange( float readings, float ranges )
+	{
+	    if( Math.abs( readings - ranges ) > EPSILON )
+	    {
+		return false;
+	    }
+	    return true;
+	}
+	
+	/*
+	 
+	 
+	 You can use the "realDistToMapDist()" method in the ProbRoadMap class as follows:
+
+    		mapx = realDistToMapDist(realx + WORLD_WIDTH/2);
+    		mapy = realDistToMapDist(WORLD_HEIGHT/2 - realy);
+
+	Once the robot's odometry has been set, the cx, cy, and ctheta variables in RobotControl contain the real 
+	world coordinates and orientation of the robot. Use the readPosition() method to update these variables.
+
+	You can set the robot's odometry by using the PositionQueue's "setOdometry()" method.  
+	  
+	 * */
+	
+	
+	
+	
+	/* 
+	 * 
+	 * 
+	 * 
+	 */
+	private void relocalize()
+	{	    
+	    readPosition();
+	    
+	    // get the readings of the sensors at current location
+	    float ranges[] = pq.getRanges();
+	    boolean destinationReached = false;
+	    float originalTheta = 0f;
+	    float tempTheta = 0f;
+	    
+	    /*
+	     * using the map, go to the specific coordinates of the node
+	     * corresponding to the map, and get the virtual "sonar" readings
+	     * that the robot would have if it were exactly where it's supposed
+	     * to be.
+	     */
+	    float[] calculatedRanges = calculateRanges();
+	    
+	    originalTheta = ctheta;
+	    System.out.print( "relocalizing ... " );
+	     
+	    /*
+	     * now check with actual readings, and see whether adjustments need
+	     * to be made
+	     */
+	    for( int x = 0; x < ranges.length; ++x )
+	    {
+		
+		if( Math.abs( ranges[x] - calculatedRanges[x] ) > EPSILON )
+		{
+		    //
+		    // calcualate the angle it needs to turn ...
+		    //
+		    tempTheta = degrees[x] + ctheta;
+		    
+		    /*
+		     * while we haven't reached the destination
+		     */
+		    while( !destinationReached )
+		    {    
+			if( checkRange( ranges[x], calculatedRanges[x] ) )
+			{
+			    destinationReached = true;
+			}
+			else
+			{   
+			    while( !checkRange( ranges[x], calculatedRanges[x] ) )
+			    {
+				readPosition();
+				ranges = pq.getRanges();
+				
+				if( Math.abs( tempTheta - ctheta ) > EPSILON )
+				{
+				    rotate( tempTheta );
+				}
+				else
+				{    
+				    pp.setSpeed( 0.1f, 0 ); // just go ... can get a bit slow ...
+				}
+			    }
+			}
+		    }
+		    //
+		    // put the robot in the correct initial orientation
+		    //
+		    rotate( ctheta - originalTheta );
+		    pq.setOdometry( cx , cy, ctheta );
+		}
+	    }
+	    
+	    System.out.println( " relocalization complete!" );
+	}
+	
+	
+	/*
+	 * 
+	 * calculate the virtual sonar ranges that are use as a method to 
+	 * relocalize 
+	 * 
+	 */
+	private float[] calculateRanges()
+	{
+	    float[] calculatedRanges = new float[8]; 
+	    /*
+	     * 
+	     * we'll only be looking for 5 pixels to 
+	     * look for any obstacles and landmanks that
+	     * should be there to help in relocalizing
+	     *
+	     */
+	    int distance = 5;
+	    
+	    boolean checkRadRange = true;
+	    int y = 0;	    
+	    float dy, dx, dtheta = 0;
+	    
+	    
+	    for( int x = 0; x < degrees.length; ++x )
+	    {
+		checkRadRange = true;
+		y = 0;
+		
+		while ( checkRadRange && y <= distance )
+		{
+		    dtheta = ctheta + degrees[x];
+		    dy = ( float ) ( Math.sin( dtheta ) * distance );
+		    dx = ( float ) ( Math.cos( dtheta ) * distance );
+		    
+		    /*
+		     * if there is no "real" obstacle at this location, go to 
+		     * the next.pixel and check.
+		     * otherwise, break, since there is one
+		     *
+		     *
+		     * if there is no real obstacle, go to the next pixel
+		     */
+		    if( prm.getObstacleMapVal( prm.realDistToMapDist( dx ), //implement this function and make the other two public
+			    prm.realDistToMapDist( dy ) ) != 1 )
+		    {
+			
+			calculatedRanges[x] = prm.mapDistToRealDist( y );
+			++y;
+		    }
+		    else // if there is obstacle, then just break out of it 
+			// and go to the next virtual sonar and calculate the ranges
+		    {
+			checkRadRange = false;
+		    }
+		}
+	    }
+	    
+	    return calculatedRanges;
+	}
 }
