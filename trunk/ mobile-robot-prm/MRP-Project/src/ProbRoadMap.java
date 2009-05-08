@@ -151,11 +151,11 @@ public class ProbRoadMap extends JFrame {
 	}
 	
 	// convert from real meter distances to map pixel distances
-	private int realDistToMapDist(double realdist) {
+	public int realDistToMapDist(double realdist) {
 		return (int) (realdist / MPP); 
 	}
 	// convert from map pixel distances to real meter distances
-	private float mapDistToRealDist(int mapdist) {
+	public float mapDistToRealDist(int mapdist) {
 		return (float) (mapdist * MPP); 
 	}
 	
@@ -690,6 +690,11 @@ public class ProbRoadMap extends JFrame {
             return new Dimension(scaledimwidth ,scaledimheight);
         }
     }
+	
+	public int getObstacleMapVal( int x, int y )
+	{
+	    return obstaclemap[x][y];
+	}
 }
 
 
