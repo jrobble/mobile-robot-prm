@@ -101,8 +101,8 @@ public class RobotControl {
 	private float[] degrees = { -90f, -50f, -30f, -10f, 10f, 30f, 50f, 90f }; // sonar spacings
 	
 	// initial robot positions in global world coordinates [x,y,theta]
-	// public static final float initial_pos0[] = {-15.5f,  12.0f,   0.0f}; // red     (port 6665)
-	public static final float initial_pos0[] = {7.8f, 12f, -90f}; // DEBUG
+	public static final float initial_pos0[] = {-15.5f,  12.0f,   0.0f}; // red     (port 6665)
+	// public static final float initial_pos0[] = {7.8f, 12f, -90f}; // DEBUG
 	
 	public static final float initial_pos1[] = {-16.5f,  12.0f, 180.0f}; // green   (port 6666)
 	public static final float initial_pos2[] = { -5.0f, -10.5f,   0.0f}; // cyan    (port 6667)
@@ -114,6 +114,8 @@ public class RobotControl {
 	public static final float all_initial_pos[][] = {
 		initial_pos0, initial_pos1, initial_pos2, initial_pos3, initial_pos4, initial_pos5, initial_pos6, initial_pos7 };
 	
+	
+	public static final String robotColors[] = { "RED", "GREEN", "CYAN", "MAGENTA", "YELLOW", "GREY", "BLUE", "WHITE", };
 	
 	
 	// readings from robot 1
@@ -261,7 +263,7 @@ public class RobotControl {
 		int startindex = determineRobot();
 		
 		System.out.println( "-------------------------------------" );
-		System.out.println( "\n\n\n\t----- robot # " + startindex + " -----\n\n\n" );
+		System.out.println( "\n\n\n\t----- robot # " + startindex + "\t" + robotColors[startindex] + " -----\n\n\n" );
 		System.out.println( "-------------------------------------" );
 		
 		
@@ -769,7 +771,7 @@ public class RobotControl {
 			// set variables
 			float ranges[] = pq.getRanges();
 			float speed = 0.5f;
-			float DDTW = 0.3f; // DESIRED_DIST_TO_WALL
+			float DDTW = 0.2f; // [0.3] DESIRED_DIST_TO_WALL
 			float MAX = PI/4;
 			float k = 5.0f; // [15]
 			float dtw, d40, d60, d80, d110;
@@ -1186,7 +1188,7 @@ public class RobotControl {
 	 * 
 	 */
 	private void relocalize()
-	{	    
+	{
 	    readPosition();
 	    
 	    // get the readings of the sensors at current location
@@ -1201,10 +1203,19 @@ public class RobotControl {
 	     * that the robot would have if it were exactly where it's supposed
 	     * to be.
 	     */
+	    
+	    System.out.println( "\n" );
 	    float[] calculatedRanges = calculateRanges();
+	    System.out.println( "\n" );
+	    
+	    System.out.println( "printing virtual sonar readings" );
+	    for( int x = 0; x < calculatedRanges.length; ++x )
+	    {
+	    	System.out.print( calculatedRanges[x] + " " );
+	    }
 	    
 	    originalTheta = ctheta;
-	    System.out.print( "relocalizing ... " );
+	    System.out.print( "\n\nrelocalizing ... \n\n" );
 	     
 	    /*
 	     * now check with actual readings, and see whether adjustments need
@@ -1213,12 +1224,13 @@ public class RobotControl {
 	    for( int x = 0; x < ranges.length; ++x )
 	    {
 		
-		if( Math.abs( ranges[x] - calculatedRanges[x] ) > EPSILON )
+		if( checkRange( ranges[x], calculatedRanges[x] ) )
 		{
 		    //
 		    // calcualate the angle it needs to turn ...
 		    //
 		    tempTheta = degrees[x] + ctheta;
+		    
 		    
 		    /*
 		     * while we haven't reached the destination
@@ -1227,6 +1239,7 @@ public class RobotControl {
 		    {    
 			if( checkRange( ranges[x], calculatedRanges[x] ) )
 			{
+				System.out.println( "\n\nDestination reached!!!\n\n" );
 			    destinationReached = true;
 			}
 			else
@@ -1236,12 +1249,16 @@ public class RobotControl {
 				readPosition();
 				ranges = pq.getRanges();
 				
-				if( Math.abs( tempTheta - ctheta ) > EPSILON )
+				//=============================================
+				if( !checkRange( tempTheta, ctheta ) )
+				//=============================================
 				{
+					System.out.println( "\n\nif\ttempTheta: " + tempTheta + "\n\n" );
 				    rotate( tempTheta );
 				}
 				else
 				{    
+					System.out.println( "\n\nmoving...\n\n" );
 				    pp.setSpeed( 0.1f, 0 ); // just go ... can get a bit slow ...
 				}
 			    }
@@ -1250,6 +1267,7 @@ public class RobotControl {
 		    //
 		    // put the robot in the correct initial orientation
 		    //
+		    System.out.println( "\n\nrotating back to previous heading: " + ( ctheta - originalTheta ) + "\n\n" );
 		    rotate( ctheta - originalTheta );
 		    pq.setOdometry( cx , cy, ctheta );
 		}
@@ -1293,6 +1311,14 @@ public class RobotControl {
 		    dy = ( float ) ( Math.sin( dtheta ) * distance );
 		    dx = ( float ) ( Math.cos( dtheta ) * distance );
 		    
+		    
+		    int mapx = prm.realDistToMapDist( dx + prm.get_world_width()/2 );
+		    
+		    int mapy = prm.realDistToMapDist( prm.get_world_height()/2 - dy );
+		    
+		    //System.out.println( "\n\ndx = " + dx + "\tdy = " + dy + "\n\n" );
+		    //System.out.println( "\n\nmapx = " + mapx + "\tmapy = " + mapy + "\n\n" );
+		    
 		    /*
 		     * if there is no "real" obstacle at this location, go to 
 		     * the next.pixel and check.
@@ -1301,11 +1327,13 @@ public class RobotControl {
 		     *
 		     * if there is no real obstacle, go to the next pixel
 		     */
-		    if( prm.getObstacleMapVal( prm.realDistToMapDist( dx ), //implement this function and make the other two public
-			    prm.realDistToMapDist( dy ) ) != 1 )
+		    if( prm.getObstacleMapVal( mapx, //implement this function and make the other two public
+		    		mapy ) != 1 )
 		    {
 			
 			calculatedRanges[x] = prm.mapDistToRealDist( y );
+			
+			//System.out.println( "calculatedRanges[" + x + "] = " +  calculatedRanges[x] );
 			++y;
 		    }
 		    else // if there is obstacle, then just break out of it 
