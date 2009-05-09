@@ -133,6 +133,7 @@ public class PositionQueue extends Thread {
 	public void run() {
 		while(true) {
 			readData();
+			Thread.yield();
 		}
 	}
 	

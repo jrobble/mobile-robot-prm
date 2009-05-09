@@ -1,3 +1,5 @@
+Authors: Jeton Bacaj and Jeffrey Robble
+
 To compile and run this program, you must have the "javaclient.jar"
 file in your path. This program was developed using Javaclient2-2.0.1. 
 
