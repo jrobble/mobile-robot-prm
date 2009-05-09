@@ -16,6 +16,8 @@ import java.util.Scanner;
 
 public class Retriever {
 	
+	public static boolean interactive = false;
+	
 	// process the data points file
 	private static double[][] readPts(String filename) throws FileNotFoundException {
 		// process the data points file
@@ -67,9 +69,11 @@ public class Retriever {
 	
 	// pause for user input
 	public static void pause() {
-		System.out.print("\nPress enter to continue ... ");
-		Scanner scan = new Scanner(System.in); scan.nextLine(); // pause
-		System.out.println("Continuing\n");
+		if(interactive) {
+			System.out.print("\nPress enter to continue ... ");
+			Scanner scan = new Scanner(System.in); scan.nextLine(); // pause
+			System.out.println("Continuing\n");
+		}
 	}
 
 	// main method
@@ -79,17 +83,28 @@ public class Retriever {
 			double realdestpts[][] = null;
 			RobotControl rc = null;
 			
+
 			if(args.length == 1) {
 				rc = new RobotControl();
 				realdestpts = readPts(args[0]);
+			}else if(args.length == 2 && args[0].equals("-i")) {
+				rc = new RobotControl();
+				realdestpts = readPts(args[1]);
+				interactive = true;
 			}else if(args.length == 3){
 				String server = args[0];
 				int port = Integer.parseInt(args[1]);
 				rc = new RobotControl(server,port);
 				realdestpts = readPts(args[2]);
+			}else if(args.length == 4 && args[0].equals("-i")){
+				String server = args[1];
+				int port = Integer.parseInt(args[2]);
+				rc = new RobotControl(server,port);
+				realdestpts = readPts(args[3]);
+				interactive = true;
 			}else{
-				System.out.println("Usage: java Retriever pts_file");
-				System.out.println("Usage: java Retriever host port pts_file");
+				System.out.println("Usage: java Retriever [-i] pts_file");
+				System.out.println("Usage: java Retriever [-i] host port pts_file");
 			}
 
 			if(rc != null) {

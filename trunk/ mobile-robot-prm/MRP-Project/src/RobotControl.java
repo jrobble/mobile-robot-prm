@@ -78,7 +78,8 @@ public class RobotControl {
 	private ProbRoadMap prm = null;
 	private PositionQueue pq = null;
 	
-	private int loc_robot = 3;
+	private float planneddist;
+	private int loc_robot = -1;
 	private boolean runRobot = true;
 	
 	// sensor geometry - hardcoded since SonarInterface.getGeom() is inaccurate
@@ -111,7 +112,7 @@ public class RobotControl {
 	public static final float initial_pos5[] = {-48.0f, -10.5f, -90.0f}; // grey    (port 6670)
 	public static final float initial_pos6[] = {  7.5f,  -5.0f,  90.0f}; // blue    (port 6671)
 	public static final float initial_pos7[] = {  0.0f,  -7.0f, -90.0f}; // white   (port 6672)
-	public static final float all_initial_pos[][] = {
+	public static float all_initial_pos[][] = {
 		initial_pos0, initial_pos1, initial_pos2, initial_pos3, initial_pos4, initial_pos5, initial_pos6, initial_pos7 };
 	
 	
@@ -218,8 +219,6 @@ public class RobotControl {
 		System.out.printf("curr cx: %5.5f cy: %5.5f ctheta: %5.5f step: %d\n",
 							cx,cy,Math.toDegrees(ctheta),steps); // DEBUG
 		
-		System.out.println("timeelapsed: " ); // DEBUG
-		
 		if (pq.isStalled()) {
 			// TODO - restart
 			System.out.println("Terminating program: STALLED");
@@ -249,12 +248,6 @@ public class RobotControl {
 	public void run(double realdestpts[][]) {
 		initialize();
 		
-		// initialize the probabilistic road map
-		prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
-		// prm.setScaleFactor(2.0);
-		// prm.setVisible(true);
-		// prm.pack();
-		
 		// TODO - localize initial robot position here ...
 		
 		// destinations are indexed in map after possible 8 initial positions
@@ -263,9 +256,21 @@ public class RobotControl {
 		int startindex = determineRobot();
 		
 		System.out.println( "-------------------------------------" );
-		System.out.println( "\n\n\n\t----- robot # " + startindex + "\t" + robotColors[startindex] + " -----\n\n\n" );
+		System.out.println( "\n\n\n\t----- robot # " + loc_robot + "\t" + robotColors[loc_robot] + " -----\n\n\n" );
 		System.out.println( "-------------------------------------" );
 		
+		// update initial robot location if necessary
+	    if(loc_robot == 3 || loc_robot == 6) {
+	    	all_initial_pos[loc_robot][0] = cx;
+	    	all_initial_pos[loc_robot][1] = cy;
+	    	all_initial_pos[loc_robot][2] = (float) Math.toDegrees(ctheta);
+	    }
+	    
+		// initialize the probabilistic road map
+		prm = new ProbRoadMap(500,realdestpts); // [1000] [500]
+		// prm.setScaleFactor(2.0);
+		// prm.setVisible(true);
+		// prm.pack();
 		
 		boolean pathsuccess = true;
 		for(int d = 8; d < realdestpts.length + 8 && pathsuccess; d++) {
@@ -317,14 +322,15 @@ public class RobotControl {
 		Stack<Node> tmpnodepath = new Stack<Node>(); // don't modify the original
 		tmpnodepath.addAll(nodepath);
 		
+		planneddist = (float) (tmpnodepath.firstElement().gscore*ProbRoadMap.MPP);
 		System.out.println(">> START FOLLOWPATH length: " + tmpnodepath.size() + 
-				           " planned dist: " + (tmpnodepath.firstElement().gscore*ProbRoadMap.MPP)); // DEBUG
+				           " planned dist: " + planneddist); // DEBUG
 		pq.tic();
 		
 		// TODO - HACK - set robot's current odometry (should localize instead)
 		Node currnode = tmpnodepath.pop();
 		if(first) {
-			pq.setOdometry(currnode.realx,currnode.realy, ctheta);
+			// pq.setOdometry(currnode.realx,currnode.realy, ctheta);
 			readPosition();
 			first = false;
 		}
@@ -343,7 +349,8 @@ public class RobotControl {
 			}
 		}
 		
-		System.out.println(">> END FOLLOWPATH actual dist: " + pq.getTotalDist()); // DEBUG
+		System.out.println(">> END FOLLOWPATH planned dist: " + planneddist + 
+				                             " actual dist: " + pq.getTotalDist()); // DEBUG
 		pq.toc();
 		return success;
 	}
@@ -367,7 +374,7 @@ public class RobotControl {
 	
 	private boolean isSafe(float fattx, float fatty, float ranges[]) {
 		return FLOAT_EQ(go(fattx,fatty,ranges,false,false),0.0f) ||
-			   (ranges[3] > 0.2f && ranges[4] > 0.2f &&
+			   (ranges[3] > 0.35f && ranges[4] > 0.35f &&
 		        ranges[2] > 0.1f && ranges[5] > 0.1f);
 	}
 	
@@ -771,7 +778,7 @@ public class RobotControl {
 			// set variables
 			float ranges[] = pq.getRanges();
 			float speed = 0.5f;
-			float DDTW = 0.2f; // [0.3] DESIRED_DIST_TO_WALL
+			float DDTW = 0.25f; // [0.3] DESIRED_DIST_TO_WALL
 			float MAX = PI/4;
 			float k = 5.0f; // [15]
 			float dtw, d40, d60, d80, d110;
@@ -914,135 +921,6 @@ public class RobotControl {
 		System.out.println(">> UPDATED PRM"); 
 	}
 	
-	
-	///////////////////////////////////////////////////////////////////
-	// Old Code
-	///////////////////////////////////////////////////////////////////
-	
-	/*
-	// travel from current location to destination
-	// nx, ny - destination specified in world offset coordinates
-	private void goTo(float nx, float ny) {
-		System.out.printf(">> GOTO [%5.5f,%5.5f]\n",nx,ny); // DEBUG
-		
-		float dx, dy, dtheta, ntheta;
-		float dist = 0.0f, totaldist = 0.0f; 
-		float angle, totalangle;
-		float speed, turnrate;
-		boolean success, turning, movingforward;
-
-		// get starting position from player interface
-		readPosition();
-
-		// determine next angle
-		dx = nx - cx;
-		dy = ny - cy;
-		dtheta = (float) Math.atan2(dy,dx);
-		
-		totalangle = dtheta-ctheta;
-		angle = 0.0f;
-
-		// prevent values > 360
-		if(totalangle > 2*PI) {
-			totalangle -= 2*PI;
-		}
-		// determine if we should go ccw instead of cw
-		if(totalangle > PI) {
-			totalangle -= 2*PI;
-		}
-
-		// set the turnrate
-		if(totalangle > 0) {
-			turnrate = DEFAULT_ANGULAR_SPEED;
-		} else {
-			turnrate = -DEFAULT_ANGULAR_SPEED;
-		}
-
-		ntheta = dtheta;
-		// cout << "NTHETA:         " << radiansToDegrees(ntheta) << endl; // DEBUG
-		// determine if we should go ccw instead of cw
-		if(ntheta > PI) {
-			ntheta -= 2*PI;
-		}
-		// ensure 180 instead of -180 for comparison purposes
-		if(FLOAT_EQ(ntheta,-PI)) {
-			ntheta = PI;
-		}
-		
-		speed = 0.0f; // turn in place first
-		totaldist = (float) Math.sqrt(Math.pow(dx,2)+Math.pow(dy,2));
-
-		// DEBUG
-		System.out.printf("DTHETA     %5.5f\n",Math.toDegrees(dtheta));
-		System.out.printf("TOTALANGLE %5.5f\n",Math.toDegrees(totalangle));
-		System.out.printf("TOTALDIST  %5.5f\n",Math.toDegrees(totaldist));
-		
-		// go there
-		success = false;
-		turning = true;
-		movingforward = false;
-		steps = 0;
-		
-		while (!success) {
-			// System.out.println(">> LOOP"); // DEBUG
-			
-			if (pp.getData().getStall() > 0) {
-				System.out.println(">> STALLED - TERMINATE PROGRAM"); // DEBUG
-				System.exit(1);
-			
-			// } else if (FLOAT_EQ(cx,nx) && FLOAT_EQ(cy,ny)) { // TODO - better?
-			} else if(FLOAT_EQ(dist,totaldist)) {	
-				System.out.println(">> DESTINATION REACHED\n"); // DEBUG
-				speed = 0.0f;
-				success = true;
-				movingforward = false;
-			} else {
-				steps++;
-				// are we heading in the right direction?
-				if(turning) { // if turning
-					if(FLOAT_EQ(angle,totalangle)) {
-						System.out.println(">> ORIENTATION REACHED\n"); // DEBUG
-						turnrate = 0.0f;
-						dist = 0.0f;
-						speed = DEFAULT_FORWARD_SPEED;
-						turning = false;
-						movingforward = true;
-					} else {
-
-						// TODO - sim only?
-						turnrate = totalangle - angle;
-						if (Math.abs(turnrate) > MAX_TURNRATE) {
-							turnrate = Math.signum(turnrate) * MAX_TURNRATE;
-						}
-						// angle += turnrate/10; // this is not guaranteed in Java
-						angle += Math.signum(turnrate) * angularDiff(ctheta,otheta);
-						System.out.printf("angle: %5.5f | %5.5f\n",Math.toDegrees(angle),Math.toDegrees(totalangle)); // DEBUG
-					}
-				}
-
-				// change speed to get better position if necessary
-				if(movingforward) { // if moving forward
-
-					// TODO - sim only?
-					speed = totaldist - dist;
-					if (Math.abs(speed) > DEFAULT_FORWARD_SPEED) {
-						speed = Math.signum(speed) * DEFAULT_FORWARD_SPEED;
-					}
-					// dist += speed/10;  // this is not guaranteed in Java
-					dist += distance(cx,ox,cy,oy);
-					System.out.printf("dist: %5.5f | %5.5f\n",dist,totaldist); // DEBUG
-				}
-
-				// command the motors
-				System.out.printf("SetSpeed(%5.5f, %5.5f)\n",speed,Math.toDegrees(turnrate));
-				pp.setSpeed(speed, turnrate);
-
-				// get position from player interface
-				readPosition();
-			}
-		}
-	}
-	*/
 	/*
 	 * 
 	 * determine the robot in which we're working with
@@ -1057,7 +935,6 @@ public class RobotControl {
 	    {
 		loc_robot = 0;
 	    }
-	    
 	    else if( checkRanges( sensor_reading1, ranges ) )
 	    {
 		loc_robot = 1;
@@ -1081,32 +958,47 @@ public class RobotControl {
 	    else
 	    {
 		
-		// turn 180 degrees - pretty much, turn the robot around
-		rotate( -180 );
-		
-		
-		while ( runRobot )
-		{
-		    ranges = pq.getRanges();
-		    
-		    distance = (float)Math.sqrt( ( pq.getCx() * pq.getCy() ) + ( pq.getCx() * pq.getCy() ) );
-		    
-		    
-		    
-		    
-		    if(  distance > 5.5 &&  ranges[4] < 0.25 )
-		    {
-			loc_robot = 6;
-			runRobot = false;
-		    }
-		    
-		    else if ( distance > 6 )
-		    {
-			runRobot = false;
-		    }
-		    
-		    pp.setSpeed( 0.2f, 0.0f ); //speed, turnrate
-		}
+			// turn 180 degrees - pretty much, turn the robot around
+			rotate( 180 );
+			
+			
+			while ( runRobot )
+			{
+				System.out.println("initial localization..."); // DEBUG
+				
+				readPosition();
+			    ranges = pq.getRanges();
+			    
+			    // distance = (float)Math.sqrt( ( pq.getCx() * pq.getCy() ) + ( pq.getCx() * pq.getCy() ) );
+			    distance = (float)Math.sqrt( Math.pow(cx,2) + Math.pow(cy,2) );
+			    
+			    /*
+			    if(  distance > 5.5 &&  ranges[4] < 0.25 )
+			    {
+					loc_robot = 6;
+					runRobot = false;
+			    }
+			    else if ( distance > 6 )
+			    {
+			    	loc_robot = 3; // blue
+			    	runRobot = false;
+			    }
+			    */
+			    
+			    if(distance > 5.0f) {
+			    	if(ranges[0] > 2.5f) {
+			    		loc_robot = 6;
+			    	} else {
+			    		loc_robot = 3;
+			    	}
+			    	stop();
+			    	runRobot = false;
+			    }
+			    
+			    if(runRobot) {
+			    	pp.setSpeed( 0.2f, 0.0f ); //speed, turnrate
+			    }
+			}
 	    }
 	    
 	    
@@ -1119,14 +1011,22 @@ public class RobotControl {
 	     * 
 	     */
 	    
+	    System.out.println("loc_robot: " + loc_robot); // DEBUG
 	    System.out.println( "\nThe goodies before: " +
 		    pq.getCx() + ", " + pq.getCy() + ", " + pq.getCtheta() );
 	    
 	    
-	    pq.setOdometry( pq.getCx() + all_initial_pos[loc_robot][0], 
-		    		pq.getCy() + all_initial_pos[loc_robot][1] , 
-		    		pq.getCtheta() + all_initial_pos[loc_robot][2] ); 
+	    if(loc_robot == 3 || loc_robot == 6) { // x,y reversed
+		    pq.setOdometry( -pq.getCy() + all_initial_pos[loc_robot][0], 
+	    		            pq.getCx() + all_initial_pos[loc_robot][1], 
+	    	     	        pq.getCtheta() + (float)Math.toRadians(all_initial_pos[loc_robot][2]) ); 
+	    } else {
+		    pq.setOdometry( pq.getCx() + all_initial_pos[loc_robot][0], 
+	    		            pq.getCy() + all_initial_pos[loc_robot][1], 
+	    	     	        pq.getCtheta() + (float)Math.toRadians(all_initial_pos[loc_robot][2]) );
+	    }
 	    
+	    readPosition();
 	    System.out.println( "The goodies after: " +
 		    pq.getCx() + ", " + pq.getCy() + ", " + pq.getCtheta() );
 	    

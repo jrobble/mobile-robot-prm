@@ -143,7 +143,7 @@ The manner in which we construct the path ensures the least number of waypoints 
 \begin{figure}[H]
 \centering
 \includegraphics[scale=.4]{img/expath.jpg}
-\caption{Example of a planned path in green starting from the upper hallway and ending in the robotics lab. The red dots are randomly chosen PRM points.}
+\caption{Example of a planned path in green starting from the upper hallway and ending in the robotics lab. The red dots are randomly chosen PRM points. The red dots along the green path are waypoints at which the robot will attempt to relocalize.}
 \label{fig:expath}
 \end{figure}
 
@@ -152,7 +152,9 @@ One downfall of the PRM is its random nature. For the purposes of this project w
 
 Another potential concern is the computational complexity of the path planning. We essentially use a brute force approach to try and determine all possible edges between all possible pairs of points. Thus, if there are $n$ points, the complexity is $O(n^2)$. If processing time is a concern, or computing resources are limited, then our program can be modified to only try and form connections between points that are within a certain distance of each other, or form connections between a point and its $k$ nearest neighbors. The problem with such a modification is that the paths generated may not ensure the fewest number of waypoints nor maximize the number of possible longest straight line paths.
 
-If the robot is ever completely blocked in and cannot move forward for a period of time (which often happens when dealing with unforeseen obstacles and local minima in the potential field, see Section \ref{sec:robotmotion}), we update the obstacle map to account for the obstacle currently in front of the robot, update the PRM by adding the robot's current position as a new point and generating new edges, and replan the path starting at the robot's current position. Most often this results in the robot back-tracking to a point a few meters behind it and then attempting to move to a point slightly to the left or right of the obstacle so that it can navigate around it. Sometimes backtracking is not necessary and the robot just turns left or right, moves to a nearby waypoint, and then continues along its previously planned path.
+If the robot is ever completely blocked in and cannot move forward for a period of time (which often happens when dealing with unforeseen obstacles and local minima in the potential field, see Section \ref{sec:robotmotion}), we update the obstacle map to account for the obstacle currently in front of the robot, update the PRM by adding the robot's current position as a new point and generating new edges, and replan the path starting at the robot's current position. Most often this results in the robot back-tracking to a point a few meters behind it and then attempting to move to a point slightly to the left or right of the obstacle so that it can navigate around it. Sometimes backtracking is not necessary and the robot just turns left or right, moves to a nearby waypoint, and then continues along its previously planned~path.
+
+Note that this form of PRM path planning can be slightly inefficient. For example, in Figure \ref{fig:expath} it is unnecessary for the robot to traverse the full path between some pairs of waypoints (such as the pair of points at the top of the hallway to the right of the robotics lab and the pair of points within the robotics lab) in order to reach the final destination. Sometimes it may be more beneficial to have the robot abandon its current waypoint and plan a path to the next waypoint if it is closer and there are not obstacles in the way. This enhancement is a consideration for future work. 
 
 
 \section{Potential Field Motion}
@@ -257,58 +259,54 @@ All of the code for this project is written in Java. Java was chosen over C++ be
 
 \section{Experiments}
 
-Getting the localization to work on actual hardware was quite challenging, and at times, downright a complete failure. There were two parts in which inhibited this to be done successfully, compared to simulation. 
-First, it's very hard to place the robot at precise coordinates as in the simulations, for obvious reasons. While this could pose less of a problem if we added a little buffer in terms of sonar readings and their consideration of uniqueness to each location, it still proved to be a headache, and we did not get it to work completely right in all of our tests. Second, the infamous sonars and their awful readings. This proved to be a major headache that was the root of all failures to get to localize, and subsequently, relocalize. Since the sonar readings were sporadic and never identical on the same robot position (even when completely stationary), it was virtually impossible to localize efficiently and within a reasonable amount of time. Relocalization was no exception when it came to being a victim of inaccurate odometer readings, though not as bad as sonar readings. It was somewhat hard to get to a point, and then using sonars to find the ranges of walls/obstacles that were supposed to be at that point was another level of inconsistency and inaccuracy that did not quite stack up nicely.
-Some notes on sonar readings – if the wall was as close to perpendicular to the sonar emitting the sound, its reading was reasonably accurate and something we could work with. However, as the angles of incidence differed from that of perpendicular, the readings became extremely erratic and completely unpredictable, hence very hard (and impossible) to put cases to deal with this issue that would have any sort of reliable success.
-Another serious and potentially prevalent issue of initial localization was that of non-static obstacles. For example, if a robot needed to venture some distance before it could determine it's locale, and it was surrounded with people (which it did happen – it was surrounded by some freshmen “oohh”-ing and “aahh”-ing at it), the localization failed. Modifying the localization code to account for this behavior would run into the problem of potentially running around for a very long time before it ha any idea which robot it is, let alone to visiting the points that it is instructed to do. While simple collision avoidance may work, we don't know whether an obstacle is static or otherwise (in contrast to when we do path planning).
+Localizing on the actual hardware was quite challenging, and at times a downright complete failure. We encountered two primary issues which inhibited successful localization on the hardware when compared to simulation. First, in real life it's very hard to place the robot at precise coordinates so that its initial sonar readings would match up nicely with those in simulation. While we attempted to address this issue by adding a little buffer in terms of comparing sonar readings to the expected values for each initial location, it still proved to be a headache, and did not work correctly in tests. The second issue is the infamous inaccuracy of the sonar readings. This proved to be a major headache and was the root of nearly all localization failures, and subsequently, relocalization failures at each waypoint. Since the sonar readings were somewhat sporadic and never quite the  same for the same robot position (even when the robot was completely stationary), it was very difficult to localize efficiently. Inaccurate odometer readings also led to relocalization problems. The robot would arrive at a waypoint and attempt to use its sonar readings to find the ranges of obstacles (i.e. walls) that it predicted would be in its immediate environment (according to the obstacle map). Inaccurate odometry led to issues linking real-world coordinates to map coordinates, and in turn which obstacles the robot expected to be in its immediate vicinity. Also, inaccurate sonar readings led to issues when the robot attempted to use nearby obstacles to gauge its offset from its desired position and update its odometry.
 
-At those times when localization and relocalization did work, the success of each was relative to what we considered success. If by some random chance sonars and the odometry worked, we were able to get it within half to a quarter of a meter close to the theoretical point. As previously noted, these results were more hit or miss (mostly miss).
+When dealing with the sonar, we observed that if the wall was close to perpendicular to the sonar emitting the sound, sonar readings were reasonably accurate; however, as the angles of incidence differed from the perpendicular, the readings became extremely erratic and quite unpredictable. Hence, it was very hard to deal with this issue reliably. Another serious issue we encountered during initial localization tests on the hardware was the presence of non-static obstacles. For example, if the robot needed to venture some distance before it could determine it's locale, and it was surrounded with people (such as curious freshmen), localization would fail. Modifying the localization code to account for this behavior would may have caused the robot to observe information about its environment for a very long time before finally deciding on its initial location, let alone visiting the desired destination points. While simple collision avoidance allowed the robot to prevent colliding with these obstacles, the robot was unable to determine whether the obstacles was static (and captured in its obstacles map) or otherwise. When localization and relocalization did work, the success of each was relative to what we considered success. Sometimes the robot would localize within half to a quarter of a meter its desired position.  These results were more hit or miss.
 
 A great deal of time was spent attempting to get potential field motion working on the actual hardware. The first major issue was tweaking the attractive and repulsive force constants to come up with values for which the robot would behave reasonably. This proved to be difficult because of the second major issue: the sonar range finder readings were not consistent. Taking the same approach we did for the goTo assignment, and ignoring sonar readings believed to be inaccurate, caused the robot to move somewhat sporadically, causing it to quickly turn towards and away from approaching obstacles. We tried to mitigate this effect by taking multiple readings over 5 - 10 iterations for each sonar and basing our repulsive force calculations on the median value. In general that worked a little better, but the robot would not respond quickly enough to approaching obstacles. Reducing the maximum speed of the robot helped alleviate this problem.
 
-One of the benefits of using potential field motion on the actual hardware was that we did not have to account for the acceleration or momentum of the robot too much as it navigated the environment. The robot would speed up if there were no obstacles ahead of it and slow down, and even stop, otherwise. Also, it was really nice that we did not have to take a predictive step to prevent the robot from overshooting its destination like we did for the goTo assignment.
+One of the benefits of using potential field motion on the actual hardware was that we did not have to account for the acceleration or momentum of the robot too much as it navigated the environment. The robot would speed up if there were no obstacles ahead of it and slow down, and even stop, otherwise. Also, it was really nice that we did not have to take a predictive step to prevent the robot from overshooting its destination like we did for the goTo assignment. When the robot switched over into wall-following mode its behavior was much more stable. We used the same tried-and-true wall-following code that we used for the wall-following assignment and in general it worked reasonably well. It was also capable of navigating into the robotics lab door as long as it was traveling no faster than about 0.3 meters per second.
 
-When the robot switched over into wall-following mode its behavior was much more stable. We used the same tried-and-true wall-following code that we used for the wall-following assignment and in general it worked reasonably well. It was also capable of navigating into the robotics lab door as long as it was traveling no faster than about 0.3 meters per second.
-
-Table \ref{tab:simresults} summarizes the results of running three experiments in simulation and Table \ref{tab:realresults} summarizes the results of running the same three experiments on the actual hardware. TTL stands for ``time to localize". The starting positions correspond to the red, blue, and grey robots for experiments 1, 2, and 3, respectively. \\
+Table \ref{tab:simresults} summarizes the results of running three experiments in simulation and Table \ref{tab:realresults} summarizes the results of running the same three experiments on the actual hardware. TTL stands for ``time to localize". DTG stands for the final ``distance to goal" and represents how close the robot ended up near its intended destination. The starting positions correspond to the red, blue, and grey robots for experiments 1, 2, and 3, respectively. Total time does not consider the time it takes to build the PRM. \\
 
 \begin{table}[h]
+\footnotesize
 \centering
-\begin{tabular}{| c | c | c | c | c | c | c |}
+\begin{tabular}{| c | c | c | c | c | c | c | c |}
 \hline
-{\#} & Start Pos. & End Pos. & Planned Dist. & Actual Dist. & TTL & Total Time \\
+{\#} & Start Pos. & End Pos. & Planned Dist.(m) & Actual Dist.(m) & TTL(s) & Total Time(s) & DTG(m) \\
 \hline 
-1 & (-15.5,12.0) & (7.5,1.0) & & & & \\
+1 & (-15.5,12.0) & (7.5,1.0) & 33.43 & 33.14 & 1 & 83 & 0.26 \\
 \hline 
-2 & (7.5,-5.0) & (0.0,-7.0) & & & & \\
+2 & (7.5,-5.0) & (0.0,-7.0) & 21.38 & 20.91 & 34 & 122 & 0.49 \\
 \hline 
-3 & (-48.0,-10.5) & (-5.0,-10.5) & & & & \\
+3 & (-48.0,-10.5) & (-5.0,-10.5) & 43.05 & 43.05 & 1 & 96 & 0.40 \\
 \hline
 \end{tabular}
 \caption{Simulation experiment results.}
 \label{tab:simresults}
 \end{table}
 
-\newpage
-
 \begin{table}[h]
+\footnotesize
 \centering
-\begin{tabular}{| c | c | c | c | c | c | c |}
+\begin{tabular}{| c | c | c | c | c | c | c | c |}
 \hline
-{\#} & Start Pos. & End Pos. & Planned Dist. & Actual Dist. & TTL & Total Time \\ 
+{\#} & Start Pos. & End Pos. & Planned Dist.(m) & Actual Dist.(m) & TTL(s) & Total Time(s) & DTG(m) \\
 \hline 
-1 & (-15.5,12.0) & (7.5,1.0) & & & & \\
+1 & (-15.5,12.0) & (7.5,1.0) & 34.06 & 40.54 & 5 & 130 & 0.31 \\
 \hline 
-2 & (7.5,-5.0) & (0.0,-7.0) & & & & \\
+2 & (7.5,-5.0) & (0.0,-7.0) & 21.40 & 23.07 & 45 & 318 & 0.45 \\
 \hline 
-3 & (-48.0,-10.5) & (-5.0,-10.5) & & & & \\
+3 & (-48.0,-10.5) & (-5.0,-10.5) & 43.02 & 50.18 & 5 & 123 & 0.21 \\
 \hline
+
 \end{tabular}
 \caption{Real world experiment results.}
 \label{tab:realresults}
 \end{table}
 
-Note that because there is a degree of randomness to the paths planned by the PRM approach, the results of running the experiments in simulation and the results of running the experiments on the hardware cannot be directly compared. Also, because each path consists of multiple waypoints, navigating a path to one destination is very similar to navigating a path to multiple destinations.
+Note that because there is a degree of randomness to the paths planned by the PRM approach, the results of running the experiments in simulation and the results of running the experiments on the hardware cannot be directly compared. Also, because each path consists of multiple waypoints, navigating a path to one destination is very similar to navigating a path to multiple destinations. All simulation experiments were run with the other 7 robots statically present with the exception of the robot that would normally occupy the destination point. Obstacles such as humans and chairs were encountered during each real world experiment, especially experiment 1 and 2. Note the large increase in total time from when experiment 2 was run in simulation to when it was in on the hardware. This is primarily due to the difficulty of the robot navigating through the robotics lab door frame. 
 
 
 \section{Conclusion}
