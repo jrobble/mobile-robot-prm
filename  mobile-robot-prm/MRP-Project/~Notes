@@ -1,2 +1,5 @@
  Run on OS X
  /System/Library/Frameworks/JavaVM.framework/Versions/1.5.0/Home/bin/java -Dfile.encoding=MacRoman -classpath /Users/fejjro/Desktop/eclipseGJava/workspace/MRP-Project/bin:/Users/fejjro/Desktop/Javaclient2-2.0.1/jars/javaclient.jar Retriever
+ 
+ 
+try zjb-grd project1-1 Node.java NodeComparator.java PositionQueue.java ProbRoadMap.java Retriever.java RobotControl.java README.txt report.pdf
