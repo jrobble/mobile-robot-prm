@@ -138,6 +138,7 @@ public class PositionQueue extends Thread {
 	
 	// set the robot's odometry
 	public synchronized void setOdometry(float x, float y, float theta) {
+		if(theta > PI) {  theta -= PI; }
 		System.out.printf(">> SET ODOMETRY [%5.5f,%5.5f,%5.5f] ...\n",x,y,Math.toDegrees(theta)); // DEBUG
 		PlayerPose pose = new PlayerPose();
 		pose.setPx(x); pose.setPy(y); pose.setPa(theta);
@@ -145,6 +146,7 @@ public class PositionQueue extends Thread {
 		do {
 			pp.setOdometry(pose); // [m,m,rad]
 			readData();
+			// System.out.printf(">> ODOMETRY PART [%5.5f,%5.5f,%5.5f]\n",cx,cy,Math.toDegrees(ctheta)); // DEBUG
 			valid = FLOAT_EQ(cx,pose.getPx()) && FLOAT_EQ(cy,pose.getPy()) && FLOAT_EQ(ctheta,pose.getPa());
 		} while(!valid);
 		totaldist = 0.0f;
