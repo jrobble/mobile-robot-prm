@@ -1,0 +1,1 @@
+A probabilistic random map is used in conjunction with an A-Star search to perform path planning for a Pioneer robot.
